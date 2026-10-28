@@ -456,7 +456,6 @@ pub fn compile_to_cpp(source: &str) -> Result<String, String> {
     let signatures: std::collections::HashMap<String, usize> = functions.iter()
         .map(|function| (function.name.clone(), function.params.len())).collect();
     for function in &functions {
-        if function.name == "main" { continue; }
         validate_function_calls(&function.body, &signatures)?;
     }
     let mut cpp = String::from(
