@@ -27,7 +27,8 @@ This roadmap describes intended work, not completed features.
 - [x] Basic return-path analysis for non-main functions
 - [ ] Structs, enums, and field access
 - [ ] Pattern matching
-- [ ] Generic functions
+- [x] Basic generic functions with inferred type parameters
+- [ ] Generic constraints, bounds, and specialization
 - [x] Function overloading by parameter types
 - [ ] Full operator overloading
 - [ ] Closures and lambdas

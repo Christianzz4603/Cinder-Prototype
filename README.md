@@ -8,7 +8,7 @@ The compiler is written in Rust. It parses Cinder, runs an initial semantic/type
 
 ## Implemented features
 
-- Typed functions, parameters, return types, recursion, forward calls, and parameter-type-based function overloading
+- Typed functions, parameters, return types, recursion, forward calls, and parameter-type-based function overloading, and inferred generic functions
 - Immutable `let` bindings and mutable `var` bindings
 - Primitive types: `i32`, `i64`, `u32`, `u64`, `f32`, `f64`, `bool`, `String`, and `str` as an alias for String
 - Decimal floating-point literals and hexadecimal, binary, and octal integers
@@ -70,7 +70,7 @@ Choose a compiler with the `CXX` environment variable, for example `CXX=clang++`
 
 ## Current limitations
 
-Cinder is actively evolving. The compiler lowers validated source into a backend-independent structural IR, but the current backend still emits C++20 and invokes an external native compiler; LLVM or a direct native backend remains future work. The semantic checker is an initial implementation, not a complete type system. Function overloads are selected by argument types with exact matches preferred over numeric conversions. Multiline, raw, and expression-based interpolated strings are supported. Interpolation currently accepts expressions and converts values through `to_string`. Arrays use C++ `std::vector` storage and bounds-checked access, but Cinder does not yet provide ownership, borrowing, or lifetime analysis. Structs, enums, modules, full generic functions, package management, cross-compilation, and a production-quality standard library are not implemented. **Cinder does not currently guarantee memory safety.**
+Cinder is actively evolving. The compiler lowers validated source into a backend-independent structural IR, but the current backend still emits C++20 and invokes an external native compiler; LLVM or a direct native backend remains future work. The semantic checker is an initial implementation, not a complete type system. Function overloads are selected by argument types with exact matches preferred over numeric conversions. Generic functions infer type parameters from arguments and lower to C++ templates; generic constraints and trait bounds are not implemented yet. Multiline, raw, and expression-based interpolated strings are supported. Interpolation currently accepts expressions and converts values through `to_string`. Arrays use C++ `std::vector` storage and bounds-checked access, but Cinder does not yet provide ownership, borrowing, or lifetime analysis. Structs, enums, modules, full generic functions, package management, cross-compilation, and a production-quality standard library are not implemented. **Cinder does not currently guarantee memory safety.**
 
 A game engine would be a separate library built on top of Cinder, not part of the compiler itself.
 

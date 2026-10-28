@@ -1,0 +1,13 @@
+fn identity<T>(value: T) -> T {
+    return value
+}
+
+fn first_item<T>(items: Array<T>) -> T {
+    return items[0]
+}
+
+fn main() {
+    print(identity(42))
+    print(identity("Cinder"))
+    print(first_item([3, 6, 9]))
+}
