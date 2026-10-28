@@ -464,16 +464,6 @@ fn emit_statements(statements: &[Stmt], cpp: &mut String, indent: usize) {
                 writeln!(cpp, "{pad}{qualifier}{ty} {name} = {};", cpp_expr(value)).unwrap();
             }
             Stmt::Assign { name, value } => { writeln!(cpp, "{pad}{name} = {};", cpp_expr(value)).unwrap(); }
-            Stmt::IndexAssign { name, index, value } => {
-                let (array_ty, mutable) = lookup_variable(scopes, name).ok_or_else(|| format!("cannot index-assign unknown variable '{name}'"))?;
-                if !mutable { return Err(format!("cannot modify elements of immutable array '{name}'; declare it with 'var'")); }
-                let element_ty = array_ty.strip_prefix("Array<").and_then(|ty| ty.strip_suffix(">"))
-                    .ok_or_else(|| format!("indexed assignment requires an Array, got {array_ty}"))?;
-                let index_ty = infer_expr_type(index, scopes, signatures)?;
-                if !is_integer(&index_ty) { return Err(format!("array index must be an integer, got {index_ty}")); }
-                let value_ty = infer_expr_type(value, scopes, signatures)?;
-                if element_ty != value_ty { return Err(format!("array element type is {element_ty}, but assigned value has type {value_ty}")); }
-            }
             Stmt::IndexAssign { name, index, value } => { writeln!(cpp, "{pad}{name}[{}] = {};", cpp_expr(index), cpp_expr(value)).unwrap(); }
             Stmt::Push { name, value } => { writeln!(cpp, "{pad}{name}.push_back({});", cpp_expr(value)).unwrap(); }
             Stmt::Print(value) => { writeln!(cpp, "{pad}std::cout << {} << '\\n';", cpp_expr(value)).unwrap(); }
@@ -685,6 +675,16 @@ fn check_statements(
                 if !compatible_type(&value_ty, &target_ty, value) {
                     return Err(format!("cannot assign {value_ty} to variable '{name}' of type {target_ty}"));
                 }
+            }
+            Stmt::IndexAssign { name, index, value } => {
+                let (array_ty, mutable) = lookup_variable(scopes, name).ok_or_else(|| format!("cannot index-assign unknown variable '{name}'"))?;
+                if !mutable { return Err(format!("cannot modify elements of immutable array '{name}'; declare it with 'var'")); }
+                let element_ty = array_ty.strip_prefix("Array<").and_then(|ty| ty.strip_suffix(">"))
+                    .ok_or_else(|| format!("indexed assignment requires an Array, got {array_ty}"))?;
+                let index_ty = infer_expr_type(index, scopes, signatures)?;
+                if !is_integer(&index_ty) { return Err(format!("array index must be an integer, got {index_ty}")); }
+                let value_ty = infer_expr_type(value, scopes, signatures)?;
+                if element_ty != value_ty { return Err(format!("array element type is {element_ty}, but assigned value has type {value_ty}")); }
             }
             Stmt::Push { name, value } => {
                 let (array_ty, mutable) = lookup_variable(scopes, name).ok_or_else(|| format!("unknown array variable '{name}'"))?;
