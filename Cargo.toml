@@ -1,0 +1,14 @@
+[package]
+name = "cinder"
+version = "0.1.0"
+edition = "2021"
+description = "The experimental Cinder native programming language compiler"
+license = "MIT"
+
+[lib]
+name = "cinder"
+path = "src/lib.rs"
+
+[[bin]]
+name = "cinder"
+path = "src/main.rs"

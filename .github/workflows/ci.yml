@@ -1,0 +1,31 @@
+name: Cinder CI
+
+on:
+  push:
+    branches: [main, "cinder/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Install native compiler
+        run: sudo apt-get update && sudo apt-get install -y g++
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Format check
+        run: cargo fmt --all -- --check
+      - name: Test compiler
+        run: cargo test --all-targets
+      - name: Build Cinder example
+        run: cargo run -- build examples/hello.cind -o /tmp/cinder-hello
+      - name: Run native example
+        run: |
+          /tmp/cinder-hello
+          test "$(/tmp/cinder-hello | head -n 1)" = "Hello from Cinder!"

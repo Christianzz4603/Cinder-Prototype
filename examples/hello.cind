@@ -1,0 +1,8 @@
+fn main() {
+    let language: str = "Cinder"
+    let version: i32 = 1
+
+    print("Hello from Cinder!")
+    print(language)
+    print(version)
+}
