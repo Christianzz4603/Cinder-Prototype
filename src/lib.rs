@@ -76,11 +76,11 @@ impl Parser {
     fn current(&self) -> &Token { &self.tokens[self.at] }
     fn advance(&mut self) -> Token {
         let token = self.tokens[self.at].clone();
-        if !matches!(token.kind, Kind::Eof) { self.at += 1; }
+        if !matches!(&token.kind, Kind::Eof) { self.at += 1; }
         token
     }
     fn skip_newlines(&mut self) {
-        while matches!(self.current().kind, Kind::Newline) { self.advance(); }
+        while matches!(&self.current().kind, Kind::Newline) { self.advance(); }
     }
     fn expect(&mut self, expected: Kind, description: &str) -> Result<(), String> {
         if self.current().kind == expected { self.advance(); Ok(()) }
@@ -114,7 +114,7 @@ impl Parser {
             Kind::Ident(word) if word == "let" || word == "var" => {
                 self.advance();
                 let name = self.take_name("a variable name")?;
-                if matches!(self.current().kind, Kind::Colon) {
+                if matches!(&self.current().kind, Kind::Colon) {
                     self.advance();
                     let _type_name = self.take_name("a type name")?;
                 }
@@ -145,14 +145,14 @@ impl Parser {
         let mut statements = Vec::new();
         loop {
             self.skip_newlines();
-            if matches!(self.current().kind, Kind::RBrace) { self.advance(); break; }
-            if matches!(self.current().kind, Kind::Eof) {
+            if matches!(&self.current().kind, Kind::RBrace) { self.advance(); break; }
+            if matches!(&self.current().kind, Kind::Eof) {
                 return Err(format!("line {}: expected '}' to close main", self.current().line));
             }
             statements.push(self.statement()?);
         }
         self.skip_newlines();
-        if !matches!(self.current().kind, Kind::Eof) {
+        if !matches!(&self.current().kind, Kind::Eof) {
             return Err(format!("line {}: only one main function is supported in this prototype", self.current().line));
         }
         Ok(statements)
