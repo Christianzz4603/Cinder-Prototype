@@ -177,7 +177,7 @@ impl Parser {
                 self.expect(Kind::RParen, "')' after function arguments")?;
                 let expected = match s.as_str() {
                     "input" => Some((0, 1)),
-                    "len" | "abs" | "sqrt" | "floor" | "ceil" | "round" | "to_string" |
+                    "len" | "pop" | "abs" | "sqrt" | "floor" | "ceil" | "round" | "to_string" |
                     "parse_int" | "is_even" | "is_odd" | "sign" => Some((1, 1)),
                     "min" | "max" | "pow" | "contains" | "starts_with" | "ends_with" => Some((2, 2)),
                     "clamp" => Some((3, 3)),
@@ -427,6 +427,7 @@ fn cpp_expr(expr: &Expr) -> String {
             let values: Vec<String> = args.iter().map(cpp_expr).collect();
             match name.as_str() {
                 "len" => format!("static_cast<long long>(cinder_len({}))", values[0]),
+                "pop" => format!("cinder_pop({})", values[0]),
                 "abs" => format!("std::abs({})", values[0]),
                 "min" => format!("std::min({}, {})", values[0], values[1]),
                 "max" => format!("std::max({}, {})", values[0], values[1]),
@@ -626,6 +627,12 @@ fn infer_expr_type(
                     Ok("String".into())
                 }
                 "len" => { if arg_types[0] != "String" && !arg_types[0].starts_with("Array<") { return bad(format!("expects String or Array, got {}", arg_types[0])); } Ok("i64".into()) }
+                "pop" => {
+                    let Some(element_ty) = arg_types[0].strip_prefix("Array<").and_then(|ty| ty.strip_suffix(">")) else { return bad(format!("expects an Array, got {}", arg_types[0])); };
+                    let mutable_target = match &args[0] { Expr::Name(name) => lookup_variable(scopes, name).is_some_and(|(_, mutable)| mutable), _ => false };
+                    if !mutable_target { return bad("expects a mutable array variable declared with var".to_string()); }
+                    Ok(element_ty.to_string())
+                }
                 "contains" | "starts_with" | "ends_with" => {
                     if arg_types.iter().any(|ty| ty != "String") { return bad("expects two String arguments".to_string()); }
                     Ok("bool".into())
@@ -866,6 +873,14 @@ inline long long cinder_len(const std::vector<T>& value) {
     return static_cast<long long>(value.size());
 }
 
+template <typename T>
+inline T cinder_pop(std::vector<T>& value) {
+    if (value.empty()) throw std::out_of_range("pop: array is empty");
+    T result = value.back();
+    value.pop_back();
+    return result;
+}
+
 inline std::string cinder_input(const std::string& prompt = {}) {
     if (!prompt.empty()) {
         std::cout << prompt << std::flush;
@@ -966,6 +981,25 @@ mod tests {
         assert!(cpp.contains("std::vector{10, 20, 30}"));
         assert!(cpp.contains("values[1]"));
         assert!(cpp.contains("cinder_len(values)"));
+    }
+
+    #[test]
+    fn pops_values_from_mutable_arrays() {
+        let cpp = compile_to_cpp(r#"fn main() {
+            var values = [10, 20]
+            print(pop(values))
+            print(len(values))
+        }"#).unwrap();
+        assert!(cpp.contains("cinder_pop(values)"));
+        assert!(cpp.contains("value.pop_back();"));
+    }
+
+    #[test]
+    fn rejects_pop_from_immutable_arrays() {
+        assert!(compile_to_cpp(r#"fn main() {
+            let values = [1, 2]
+            print(pop(values))
+        }"#).unwrap_err().contains("mutable array variable"));
     }
 
     #[test]

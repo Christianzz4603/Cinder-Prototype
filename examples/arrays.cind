@@ -4,5 +4,6 @@ fn main() {
     push(values, 40)
     print(values[0])
     print(values[1])
+    print(pop(values))
     print(len(values))
 }
