@@ -18,7 +18,7 @@ The compiler is written in Rust. It parses Cinder, runs an initial semantic/type
 - break and continue with loop-context validation
 - Arithmetic, comparisons, equality, logical, bitwise, shift, and unary operators
 - String concatenation, common string escapes, triple-quoted multiline strings (`\"\"\"...\"\"\"`), raw strings (`r\"...\"` and `r\"\"\"...\"\"\"`), interpolated strings (`$\"Hello, {name}\"`), escaped interpolation braces (`{{` and `}}`), and `//` comments
-- Built-ins: print, input, len, is_empty, capacity, push, pop, abs, min, max, clamp, sqrt, pow, floor, ceil, round, to_string, parse_int, contains, starts_with, ends_with, is_even, is_odd, and sign
+- Built-ins: print, input, len, is_empty, capacity, first, last, push, pop, abs, min, max, clamp, sqrt, pow, floor, ceil, round, to_string, parse_int, contains, starts_with, ends_with, is_even, is_odd, and sign
 - Native optimization configuration and optional link-time optimization
 - IR and generated C++ inspection commands
 

@@ -216,6 +216,8 @@ fn cpp_expr(expr: &IrExpression) -> String {
                 "len" => format!("static_cast<long long>(cinder_len({}))", values[0]),
                 "is_empty" => format!("({}).empty()", values[0]),
                 "capacity" => format!("static_cast<long long>(({}).capacity())", values[0]),
+                "first" => format!("cinder_first({})", values[0]),
+                "last" => format!("cinder_last({})", values[0]),
                 "pop" => format!("cinder_pop({})", values[0]),
                 "abs" => format!("std::abs({})", values[0]),
                 "min" => format!("std::min({}, {})", values[0], values[1]),
@@ -304,6 +306,16 @@ inline long long cinder_len(const std::string& value) {
 template <typename T>
 inline long long cinder_len(const std::vector<T>& value) {
     return static_cast<long long>(value.size());
+}
+template <typename T>
+inline const T& cinder_first(const std::vector<T>& value) {
+    if (value.empty()) throw std::out_of_range("first: array is empty");
+    return value.front();
+}
+template <typename T>
+inline const T& cinder_last(const std::vector<T>& value) {
+    if (value.empty()) throw std::out_of_range("last: array is empty");
+    return value.back();
 }
 template <typename T>
 inline T cinder_pop(std::vector<T>& value) {
