@@ -437,7 +437,7 @@ fn emit_statements(statements: &[Stmt], cpp: &mut String, indent: usize) {
                 writeln!(cpp, "{pad}}}").unwrap();
             }
             Stmt::ForRange { name, start, end, body } => {
-                writeln!(cpp, "{pad}for (const std::int64_t {name} = {}; {name} < {}; ++{name}) {{", cpp_expr(start), cpp_expr(end)).unwrap();
+                writeln!(cpp, "{pad}for (std::int64_t {name} = {}; {name} < {}; ++{name}) {{", cpp_expr(start), cpp_expr(end)).unwrap();
                 emit_statements(body, cpp, indent + 1);
                 writeln!(cpp, "{pad}}}").unwrap();
             }
