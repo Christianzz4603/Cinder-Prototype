@@ -920,7 +920,7 @@ fn infer_expr_type(
                         }
                         return Err(format!("no overload of '{name}' accepts {} argument(s)", arg_types.len()));
                     }
-                    let mut viable: Vec<(usize, &FunctionSignature)> = candidates.iter()
+                    let mut viable: Vec<(usize, &FunctionSignature, std::collections::HashMap<String, String>)> = candidates.iter()
                         .filter(|signature| signature.params.len() == arg_types.len())
                         .filter_map(|signature| {
                             let mut score = 0usize;
