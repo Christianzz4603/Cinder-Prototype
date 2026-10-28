@@ -214,16 +214,16 @@ fn fold_binary(left: &IrExpression, operator: &str, right: &IrExpression) -> Opt
     if let (IrExpression::Number(a), IrExpression::Number(b)) = (left, right) {
         if let (Some(a_int), Some(b_int)) = (parse_integer_literal(a), parse_integer_literal(b)) {
             let integer_result = match operator {
-                "+" => a_int.checked_add(b_int).map(IrExpression::Number),
-                "-" => a_int.checked_sub(b_int).map(IrExpression::Number),
-                "*" => a_int.checked_mul(b_int).map(IrExpression::Number),
-                "/" => a_int.checked_div(b_int).map(IrExpression::Number),
-                "%" => a_int.checked_rem(b_int).map(IrExpression::Number),
+                "+" => a_int.checked_add(b_int).map(|number| IrExpression::Number(number.to_string())),
+                "-" => a_int.checked_sub(b_int).map(|number| IrExpression::Number(number.to_string())),
+                "*" => a_int.checked_mul(b_int).map(|number| IrExpression::Number(number.to_string())),
+                "/" => a_int.checked_div(b_int).map(|number| IrExpression::Number(number.to_string())),
+                "%" => a_int.checked_rem(b_int).map(|number| IrExpression::Number(number.to_string())),
                 "&" => Some(IrExpression::Number((a_int & b_int).to_string())),
                 "|" => Some(IrExpression::Number((a_int | b_int).to_string())),
                 "^" => Some(IrExpression::Number((a_int ^ b_int).to_string())),
-                "<<" if (0..64).contains(&b_int) => a_int.checked_shl(b_int as u32).map(IrExpression::Number),
-                ">>" if (0..64).contains(&b_int) => a_int.checked_shr(b_int as u32).map(IrExpression::Number),
+                "<<" if (0..64).contains(&b_int) => a_int.checked_shl(b_int as u32).map(|number| IrExpression::Number(number.to_string())),
+                ">>" if (0..64).contains(&b_int) => a_int.checked_shr(b_int as u32).map(|number| IrExpression::Number(number.to_string())),
                 "==" => Some(IrExpression::Bool(a_int == b_int)),
                 "!=" => Some(IrExpression::Bool(a_int != b_int)),
                 "<" => Some(IrExpression::Bool(a_int < b_int)),
@@ -312,7 +312,7 @@ fn fold_constants(program: &mut IrProgram) {
     }
 }
 
-fn lower_program(functions: &[Function]) -> IrProgram {
+pub fn lower_program(functions: &[Function]) -> IrProgram {
     let mut program = IrProgram {
         functions: functions.iter().map(|function| IrFunction {
             name: function.name.clone(),
