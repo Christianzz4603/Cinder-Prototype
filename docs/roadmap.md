@@ -13,7 +13,8 @@ This roadmap describes intended work, not completed features.
 
 ## Milestone 0.2: A real language core
 - [x] Expression grammar and operator precedence
-- [ ] if, else, while, and for
+- [x] if and else blocks, including nested conditionals
+- [ ] while and for loops
 - [ ] User-defined functions and parameters
 - [ ] Static type checker with explicit conversion rules
 - [ ] Cinder-specific intermediate representation

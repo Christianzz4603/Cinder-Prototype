@@ -1,0 +1,15 @@
+fn main() {
+    let score = 42
+    let has_bonus = true
+
+    if score >= 40 && has_bonus {
+        print("Passed with bonus")
+        if score >= 50 {
+            print("High score")
+        } else {
+            print("Keep improving")
+        }
+    } else {
+        print("Try again")
+    }
+}

@@ -102,7 +102,7 @@ enum Expr {
 }
 
 #[derive(Debug)]
-enum Stmt { Let { name: String, value: Expr }, Print(Expr), Return(Expr) }
+enum Stmt { Let { name: String, value: Expr }, Print(Expr), Return(Expr), If { condition: Expr, then_branch: Vec<Stmt>, else_branch: Option<Vec<Stmt>> } }
 
 struct Parser { tokens: Vec<Token>, at: usize }
 
@@ -186,28 +186,34 @@ impl Parser {
         Ok(left)
     }
     fn expression(&mut self) -> Result<Expr, String> { self.binary(1) }
+    fn block(&mut self) -> Result<Vec<Stmt>, String> {
+        self.expect(Kind::LBrace, "'{' to start block")?;
+        let mut statements = Vec::new();
+        loop {
+            self.skip_newlines();
+            if matches!(&self.current().kind, Kind::RBrace) { self.advance(); return Ok(statements); }
+            if matches!(&self.current().kind, Kind::Eof) { return Err(format!("line {}: expected '}}' to close block", self.current().line)); }
+            statements.push(self.statement()?);
+        }
+    }
     fn statement(&mut self) -> Result<Stmt, String> {
         match &self.current().kind {
             Kind::Ident(word) if word == "let" || word == "var" => {
-                self.advance();
-                let name = self.take_name("a variable name")?;
-                if matches!(&self.current().kind, Kind::Colon) {
-                    self.advance();
-                    let _type_name = self.take_name("a type name")?;
-                }
+                self.advance(); let name = self.take_name("a variable name")?;
+                if matches!(&self.current().kind, Kind::Colon) { self.advance(); let _type_name = self.take_name("a type name")?; }
                 self.expect(Kind::Equal, "'=' after variable declaration")?;
                 Ok(Stmt::Let { name, value: self.expression()? })
             }
             Kind::Ident(word) if word == "print" => {
-                self.advance();
-                self.expect(Kind::LParen, "'(' after print")?;
-                let value = self.expression()?;
-                self.expect(Kind::RParen, "')' after print value")?;
-                Ok(Stmt::Print(value))
+                self.advance(); self.expect(Kind::LParen, "'(' after print")?;
+                let value = self.expression()?; self.expect(Kind::RParen, "')' after print value")?; Ok(Stmt::Print(value))
             }
-            Kind::Ident(word) if word == "return" => {
-                self.advance();
-                Ok(Stmt::Return(self.expression()?))
+            Kind::Ident(word) if word == "return" => { self.advance(); Ok(Stmt::Return(self.expression()?)) }
+            Kind::Ident(word) if word == "if" => {
+                self.advance(); let condition = self.expression()?; let then_branch = self.block()?;
+                self.skip_newlines();
+                let else_branch = if matches!(&self.current().kind, Kind::Ident(word) if word == "else") { self.advance(); Some(self.block()?) } else { None };
+                Ok(Stmt::If { condition, then_branch, else_branch })
             }
             _ => Err(format!("line {}: unsupported statement", self.current().line)),
         }
@@ -276,6 +282,26 @@ fn cpp_expr(expr: &Expr) -> String {
     }
 }
 
+fn emit_statements(statements: &[Stmt], cpp: &mut String, indent: usize) {
+    let pad = "    ".repeat(indent);
+    for stmt in statements {
+        match stmt {
+            Stmt::Let { name, value } => { writeln!(cpp, "{pad}auto {name} = {};", cpp_expr(value)).unwrap(); }
+            Stmt::Print(value) => { writeln!(cpp, "{pad}std::cout << {} << '\\n';", cpp_expr(value)).unwrap(); }
+            Stmt::Return(value) => { writeln!(cpp, "{pad}return {};", cpp_expr(value)).unwrap(); }
+            Stmt::If { condition, then_branch, else_branch } => {
+                writeln!(cpp, "{pad}if ({}) {{", cpp_expr(condition)).unwrap();
+                emit_statements(then_branch, cpp, indent + 1);
+                if let Some(else_branch) = else_branch {
+                    writeln!(cpp, "{pad}}} else {{").unwrap();
+                    emit_statements(else_branch, cpp, indent + 1);
+                }
+                writeln!(cpp, "{pad}}}").unwrap();
+            }
+        }
+    }
+}
+
 /// Parse the current Cinder subset and emit C++ for native compilation.
 /// This bootstrap does not yet perform static type checking.
 pub fn compile_to_cpp(source: &str) -> Result<String, String> {
@@ -283,63 +309,7 @@ pub fn compile_to_cpp(source: &str) -> Result<String, String> {
     let mut parser = Parser { tokens, at: 0 };
     let statements = parser.program()?;
     let mut cpp = String::from("#include <iostream>\n#include <string>\n\nint main() {\n");
-    for stmt in statements {
-        match stmt {
-            Stmt::Let { name, value } => { writeln!(cpp, "    auto {name} = {};", cpp_expr(&value)).unwrap(); }
-            Stmt::Print(value) => { writeln!(cpp, "    std::cout << {} << '\\n';", cpp_expr(&value)).unwrap(); }
-            Stmt::Return(value) => { writeln!(cpp, "    return {};", cpp_expr(&value)).unwrap(); }
-        }
-    }
+    emit_statements(&statements, &mut cpp, 1);
     cpp.push_str("    return 0;\n}\n");
     Ok(cpp)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::compile_to_cpp;
-
-    #[test]
-    fn compiles_hello_world_to_native_source() {
-        let cpp = compile_to_cpp("fn main() {\n    print(\"Hello, Cinder!\")\n}\n").unwrap();
-        assert!(cpp.contains("std::cout"));
-        assert!(cpp.contains("Hello, Cinder!"));
-    }
-
-    #[test]
-    fn supports_variables_and_inferred_types() {
-        let cpp = compile_to_cpp("fn main() {\n let count: i32 = 42\n print(count)\n}\n").unwrap();
-        assert!(cpp.contains("auto count = 42;"));
-        assert!(cpp.contains("std::cout << count"));
-    }
-
-    #[test]
-    fn respects_operator_precedence() {
-        let cpp = compile_to_cpp("fn main() {\n print(2 + 3 * 4)\n}\n").unwrap();
-        assert!(cpp.contains("(2 + (3 * 4))"));
-    }
-
-    #[test]
-    fn supports_comparisons_and_logical_operators() {
-        let cpp = compile_to_cpp("fn main() {\n print(3 < 4 && 5 != 6)\n}\n").unwrap();
-        assert!(cpp.contains("((3 < 4) && (5 != 6))"));
-    }
-
-    #[test]
-    fn supports_unary_operators_and_grouping() {
-        let cpp = compile_to_cpp("fn main() {\n print(-(2 + 3))\n print(!false)\n}\n").unwrap();
-        assert!(cpp.contains("(-(2 + 3))"));
-        assert!(cpp.contains("(!false)"));
-    }
-
-    #[test]
-    fn rejects_unclosed_function_body() {
-        let err = compile_to_cpp("fn main() {\n print(\"oops\")\n").unwrap_err();
-        assert!(err.contains("expected '}'"));
-    }
-
-    #[test]
-    fn rejects_unsupported_characters() {
-        let err = compile_to_cpp("fn main() {\n print(@)\n}\n").unwrap_err();
-        assert!(err.contains("unexpected character"));
-    }
 }

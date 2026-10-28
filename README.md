@@ -16,9 +16,11 @@ Currently supported:
 - string, integer, boolean, and variable expressions
 - \`print(expression)\`
 - \`return expression\`
+- \`if condition { ... }\` and optional \`else { ... }\` blocks, including nesting
+- Arithmetic, comparison, equality, logical, unary, and grouped expressions
 - \`//\` comments and common string escapes
 
-Not implemented yet: arithmetic expressions, user-defined functions, conditionals, loops, real type checking, ownership/borrowing, a custom intermediate representation, LLVM integration, package management, and cross-compilation. The current transpiler is a bootstrap, not yet a production compiler or a memory-safety system.
+Not implemented yet: loops, user-defined functions, real static type checking, ownership/borrowing, a custom intermediate representation, LLVM integration, package management, and cross-compilation. Type annotations are accepted but not enforced, and this prototype does not yet guarantee memory safety. The current transpiler is a bootstrap, not yet a production compiler or a memory-safety system.
 
 ## Try it
 
