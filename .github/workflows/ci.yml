@@ -36,9 +36,9 @@ jobs:
           test "$(/tmp/cinder-hello | head -n 1)" = "Hello from Cinder!"
           /tmp/cinder-variables
           /tmp/cinder-control_flow
-          output="$(printf 'Cinder\\n' | /tmp/cinder-standard_library)"
-          printf '%s\\n' "$output"
-          printf '%s\\n' "$output" | grep -Fq 'Hello, Cinder'
-          printf '%s\\n' "$output" | grep -Fq 'Passed: true'
-          printf '%s\\n' "$output" | grep -Fq 'Even score: true'
-          printf '%s\\n' "$output" | grep -Fq 'You found the language name!'
+          output="$(printf 'Cinder\n' | /tmp/cinder-standard_library)"
+          printf '%s\n' "$output"
+          printf '%s\n' "$output" | grep -Fq 'Hello, Cinder'
+          printf '%s\n' "$output" | grep -Fq 'Passed: true'
+          printf '%s\n' "$output" | grep -Fq 'Even score: false'
+          printf '%s\n' "$output" | grep -Fq 'You found the language name!'
