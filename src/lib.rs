@@ -278,7 +278,7 @@ fn cpp_string(value: &str) -> String {
         match ch {
             '\\' => out.push_str("\\\\"),
             '"' => out.push_str("\\\""),
-            '\n' => out.push_str("\\n"),
+            '\n' => out.push_str("\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
             c if c.is_control() => { let _ = write!(out, "\\u{:04x}", c as u32); }
@@ -342,7 +342,7 @@ fn emit_statements(statements: &[Stmt], cpp: &mut String, indent: usize) {
     for stmt in statements {
         match stmt {
             Stmt::Let { name, value } => { writeln!(cpp, "{pad}auto {name} = {};", cpp_expr(value)).unwrap(); }
-            Stmt::Print(value) => { writeln!(cpp, "{pad}std::cout << {} << '\\n';", cpp_expr(value)).unwrap(); }
+            Stmt::Print(value) => { writeln!(cpp, "{pad}std::cout << {} << '\n';", cpp_expr(value)).unwrap(); }
             Stmt::Return(value) => { writeln!(cpp, "{pad}return {};", cpp_expr(value)).unwrap(); }
             Stmt::If { condition, then_branch, else_branch } => {
                 writeln!(cpp, "{pad}if ({}) {{", cpp_expr(condition)).unwrap();
@@ -364,7 +364,7 @@ pub fn compile_to_cpp(source: &str) -> Result<String, String> {
     let mut parser = Parser { tokens, at: 0 };
     let statements = parser.program()?;
     let mut cpp = String::from(
-        "#include <algorithm>\\n#include <cmath>\\n#include <iostream>\\n#include <stdexcept>\\n#include <string>\\n#include <type_traits>\\n\\n"
+        "#include <algorithm>\n#include <cmath>\n#include <iostream>\n#include <stdexcept>\n#include <string>\n#include <type_traits>\n\n"
     );
     cpp.push_str(r#"
 inline long long cinder_len(const std::string& value) {
@@ -414,9 +414,9 @@ inline long long cinder_parse_int(const std::string& value) {
     return result;
 }
 "#);
-    cpp.push_str("\\nint main() {\\n");
+    cpp.push_str("\nint main() {\n");
     emit_statements(&statements, &mut cpp, 1);
-    cpp.push_str("    return 0;\\n}\\n");
+    cpp.push_str("    return 0;\n}\n");
     Ok(cpp)
 }
 
@@ -445,7 +445,13 @@ mod tests {
     #[test]
     fn emits_runtime_helpers_and_uses_cxx20_string_operations() {
         let cpp = compile_to_cpp(
-            "fn main() {\\n let text = input()\\n print(to_string(contains(text, \\"x\\")))\\n print(parse_int(\\"42\\"))\\n print(starts_with(text, \\"a\\"))\\n print(ends_with(text, \\"z\\"))\\n}\\n",
+            r#"fn main() {
+                let text = input()
+                print(to_string(contains(text, "x")))
+                print(parse_int("42"))
+                print(starts_with(text, "a"))
+                print(ends_with(text, "z"))
+            }"#,
         )
         .unwrap();
         assert!(cpp.contains("inline long long cinder_len"));
@@ -459,11 +465,18 @@ mod tests {
     #[test]
     fn compiles_nested_control_flow_and_string_concatenation() {
         let cpp = compile_to_cpp(
-            "fn main() {\\n let name = \\"Cinder\\"\\n if contains(name, \\"in\\") { print(\\"Hello, \\" + name) } else { print(\\"Nope\\") }\\n}\\n",
+            r#"fn main() {
+                let name = "Cinder"
+                if contains(name, "in") {
+                    print("Hello, " + name)
+                } else {
+                    print("Nope")
+                }
+            }"#,
         )
         .unwrap();
-        assert!(cpp.contains("find(std::string(\\"in\\"))"));
-        assert!(cpp.contains("std::string(\\"Hello, \\") + name"));
+        assert!(cpp.contains("find(std::string(\"in\"))"));
+        assert!(cpp.contains("std::string(\"Hello, \") + name"));
     }
 
     #[test]
