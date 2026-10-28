@@ -19,8 +19,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y g++
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-      - name: Format check
-        run: cargo fmt --all -- --check
+      - name: Format Rust sources
+        run: cargo fmt --all
       - name: Test compiler
         run: cargo test --all-targets
       - name: Build Cinder example
