@@ -12,7 +12,7 @@ The compiler is written in Rust and translates the initial Cinder syntax subset 
 
 Currently supported:
 - `fn main() { ... }`
-- `let` and `var` declarations with optional type annotations, including `str` as an alias for `String`
+- `let` and `var` declarations with enforced type annotations, including `str` as an alias for `String`; `let` is immutable and `var` is mutable
 - string, integer, boolean, and variable expressions
 - `print(expression)`
 - Built-in utility functions: `len`, `abs`, `min`, `max`, `clamp`, `sqrt`, `pow`, `floor`, `ceil`, `round`, `to_string`, `parse_int`, `input`, `contains`, `starts_with`, `ends_with`, `is_even`, `is_odd`, and `sign`
@@ -22,7 +22,7 @@ Currently supported:
 - Arithmetic, comparison, equality, logical, unary, and grouped expressions
 - `//` comments and common string escapes
 
-Now implemented: typed user-defined functions, parameters, return types, recursion, forward declarations, and user-function argument-count validation. Still planned: a full type-aware standard library, real static type checking, ownership/borrowing, a custom intermediate representation, LLVM integration, package management, and cross-compilation. The native backend currently delegates optimization to the selected C++ compiler. A game engine would be a separate library/framework built on top of Cinder, not the language compiler itself; graphics, input, audio, asset loading, platform APIs, and a game loop still need to be built. Type annotations are accepted but not enforced, and this prototype does not yet guarantee memory safety. The current transpiler is a bootstrap, not yet a production compiler or a memory-safety system.
+Now implemented: typed user-defined functions, parameters, return types, recursion, forward declarations, and user-function argument-count validation. Still planned: a full type-aware standard library, real static type checking, ownership/borrowing, a custom intermediate representation, LLVM integration, package management, and cross-compilation. The native backend currently delegates optimization to the selected C++ compiler. A game engine would be a separate library/framework built on top of Cinder, not the language compiler itself; graphics, input, audio, asset loading, platform APIs, and a game loop still need to be built. The initial static checker now validates variable declarations, assignments, function calls, operators, and boolean conditions. It remains a limited prototype: return-path analysis, precise source spans, ownership/borrowing, and comprehensive type inference are not yet implemented, so memory safety is not guaranteed. The current transpiler is a bootstrap, not yet a production compiler or a memory-safety system.
 
 ## Try it
 

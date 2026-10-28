@@ -105,7 +105,7 @@ enum Expr {
 }
 
 #[derive(Debug)]
-enum Stmt { Let { name: String, value: Expr }, Assign { name: String, value: Expr }, Print(Expr), Return(Expr), Break, Continue, If { condition: Expr, then_branch: Vec<Stmt>, else_branch: Option<Vec<Stmt>> }, While { condition: Expr, body: Vec<Stmt> } }
+enum Stmt { Let { name: String, declared_type: Option<String>, mutable: bool, value: Expr }, Assign { name: String, value: Expr }, Print(Expr), Return(Expr), Break, Continue, If { condition: Expr, then_branch: Vec<Stmt>, else_branch: Option<Vec<Stmt>> }, While { condition: Expr, body: Vec<Stmt> } }
 
 #[derive(Debug)]
 struct Function { name: String, params: Vec<(String, String)>, return_type: String, body: Vec<Stmt> }
@@ -235,10 +235,15 @@ impl Parser {
     fn statement(&mut self) -> Result<Stmt, String> {
         match &self.current().kind {
             Kind::Ident(word) if word == "let" || word == "var" => {
-                self.advance(); let name = self.take_name("a variable name")?;
-                if matches!(&self.current().kind, Kind::Colon) { self.advance(); let _type_name = self.take_name("a type name")?; }
+                let mutable = word == "var";
+                self.advance();
+                let name = self.take_name("a variable name")?;
+                let declared_type = if matches!(&self.current().kind, Kind::Colon) {
+                    self.advance();
+                    Some(self.parse_type("a variable type")?)
+                } else { None };
                 self.expect(Kind::Equal, "'=' after variable declaration")?;
-                Ok(Stmt::Let { name, value: self.expression()? })
+                Ok(Stmt::Let { name, declared_type, mutable, value: self.expression()? })
             }
             Kind::Ident(word) if word == "print" => {
                 self.advance(); self.expect(Kind::LParen, "'(' after print")?;
@@ -396,7 +401,11 @@ fn emit_statements(statements: &[Stmt], cpp: &mut String, indent: usize) {
     let pad = "    ".repeat(indent);
     for stmt in statements {
         match stmt {
-            Stmt::Let { name, value } => { writeln!(cpp, "{pad}auto {name} = {};", cpp_expr(value)).unwrap(); }
+            Stmt::Let { name, declared_type, mutable, value } => {
+                let qualifier = if *mutable { "" } else { "const " };
+                let ty = declared_type.as_deref().map(cpp_type).map(str::to_string).unwrap_or_else(|| "auto".to_string());
+                writeln!(cpp, "{pad}{qualifier}{ty} {name} = {};", cpp_expr(value)).unwrap();
+            }
             Stmt::Assign { name, value } => { writeln!(cpp, "{pad}{name} = {};", cpp_expr(value)).unwrap(); }
             Stmt::Print(value) => { writeln!(cpp, "{pad}std::cout << {} << '\\n';", cpp_expr(value)).unwrap(); }
             Stmt::Return(value) => { writeln!(cpp, "{pad}return {};", cpp_expr(value)).unwrap(); }
@@ -432,6 +441,214 @@ fn cpp_type(ty: &str) -> &'static str {
         "String" => "std::string",
         _ => unreachable!("parser validates types"),
     }
+}
+
+
+#[derive(Clone, Debug)]
+struct FunctionSignature {
+    params: Vec<String>,
+    return_type: String,
+}
+
+type TypeScopes = Vec<std::collections::HashMap<String, (String, bool)>>;
+
+fn is_integer(ty: &str) -> bool {
+    matches!(ty, "i32" | "i64" | "u32" | "u64")
+}
+
+fn is_numeric(ty: &str) -> bool {
+    is_integer(ty) || matches!(ty, "f32" | "f64")
+}
+
+fn compatible_type(actual: &str, expected: &str, expr: &Expr) -> bool {
+    actual == expected || (matches!(expr, Expr::Number(_)) && is_numeric(expected) && is_integer(actual))
+        || (is_numeric(actual) && is_numeric(expected))
+}
+
+fn lookup_variable(scopes: &TypeScopes, name: &str) -> Option<(String, bool)> {
+    scopes.iter().rev().find_map(|scope| scope.get(name).cloned())
+}
+
+fn infer_expr_type(
+    expr: &Expr,
+    scopes: &TypeScopes,
+    signatures: &std::collections::HashMap<String, FunctionSignature>,
+) -> Result<String, String> {
+    match expr {
+        Expr::Text(_) => Ok("String".into()),
+        Expr::Number(_) => Ok("i64".into()),
+        Expr::Bool(_) => Ok("bool".into()),
+        Expr::Name(name) => lookup_variable(scopes, name).map(|item| item.0)
+            .ok_or_else(|| format!("unknown variable '{name}'")),
+        Expr::Unary { op, value } => {
+            let ty = infer_expr_type(value, scopes, signatures)?;
+            match op {
+                Kind::Minus if is_numeric(&ty) => Ok(ty),
+                Kind::Bang if ty == "bool" => Ok("bool".into()),
+                Kind::Minus => Err(format!("unary '-' requires a numeric value, got {ty}")),
+                Kind::Bang => Err(format!("logical '!' requires bool, got {ty}")),
+                _ => unreachable!("parser only creates supported unary operators"),
+            }
+        }
+        Expr::Binary { left, op, right } => {
+            let left_ty = infer_expr_type(left, scopes, signatures)?;
+            let right_ty = infer_expr_type(right, scopes, signatures)?;
+            match op {
+                BinaryOp::Add if left_ty == "String" && right_ty == "String" => Ok("String".into()),
+                BinaryOp::Add | BinaryOp::Subtract | BinaryOp::Multiply | BinaryOp::Divide | BinaryOp::Remainder
+                    if is_numeric(&left_ty) && is_numeric(&right_ty) => {
+                        if left_ty == "f64" || right_ty == "f64" { Ok("f64".into()) }
+                        else if left_ty == "f32" || right_ty == "f32" { Ok("f32".into()) }
+                        else if left_ty == "i64" || right_ty == "i64" { Ok("i64".into()) }
+                        else if left_ty == "u64" || right_ty == "u64" { Ok("u64".into()) }
+                        else if left_ty == "i32" || right_ty == "i32" { Ok("i32".into()) }
+                        else { Ok("u32".into()) }
+                    }
+                BinaryOp::Add => Err(format!("operator '+' does not support {left_ty} + {right_ty}")),
+                BinaryOp::Subtract | BinaryOp::Multiply | BinaryOp::Divide | BinaryOp::Remainder =>
+                    Err(format!("arithmetic operator requires numeric operands, got {left_ty} and {right_ty}")),
+                BinaryOp::Less | BinaryOp::LessEqual | BinaryOp::Greater | BinaryOp::GreaterEqual
+                    if is_numeric(&left_ty) && is_numeric(&right_ty) => Ok("bool".into()),
+                BinaryOp::Less | BinaryOp::LessEqual | BinaryOp::Greater | BinaryOp::GreaterEqual =>
+                    Err(format!("comparison requires numeric operands, got {left_ty} and {right_ty}")),
+                BinaryOp::Equal | BinaryOp::NotEqual if left_ty == right_ty || (is_numeric(&left_ty) && is_numeric(&right_ty)) => Ok("bool".into()),
+                BinaryOp::Equal | BinaryOp::NotEqual => Err(format!("equality operands have incompatible types {left_ty} and {right_ty}")),
+                BinaryOp::And | BinaryOp::Or if left_ty == "bool" && right_ty == "bool" => Ok("bool".into()),
+                BinaryOp::And | BinaryOp::Or => Err(format!("logical operators require bool operands, got {left_ty} and {right_ty}")),
+            }
+        }
+        Expr::Call { name, args } => {
+            let mut arg_types = Vec::with_capacity(args.len());
+            for arg in args { arg_types.push(infer_expr_type(arg, scopes, signatures)?); }
+            let bad = |expected: &str| Err(format!("function '{name}' {expected}"));
+            match name.as_str() {
+                "input" => {
+                    if arg_types.first().is_some_and(|ty| ty != "String") { return bad("expects an optional String prompt"); }
+                    Ok("String".into())
+                }
+                "len" => { if arg_types[0] != "String" { return bad(format!("expects String, got {}", arg_types[0])); } Ok("i64".into()) }
+                "contains" | "starts_with" | "ends_with" => {
+                    if arg_types.iter().any(|ty| ty != "String") { return bad("expects two String arguments"); }
+                    Ok("bool".into())
+                }
+                "parse_int" => { if arg_types[0] != "String" { return bad(format!("expects String, got {}", arg_types[0])); } Ok("i64".into()) }
+                "to_string" => Ok("String".into()),
+                "is_even" | "is_odd" => {
+                    if !is_integer(&arg_types[0]) { return bad(format!("expects an integer, got {}", arg_types[0])); }
+                    Ok("bool".into())
+                }
+                "abs" | "sign" => {
+                    if !is_numeric(&arg_types[0]) { return bad(format!("expects a numeric argument, got {}", arg_types[0])); }
+                    if name == "sign" { Ok("i64".into()) } else { Ok(arg_types[0].clone()) }
+                }
+                "sqrt" | "floor" | "ceil" | "round" => {
+                    if !is_numeric(&arg_types[0]) { return bad(format!("expects a numeric argument, got {}", arg_types[0])); }
+                    Ok("f64".into())
+                }
+                "pow" => {
+                    if arg_types.iter().any(|ty| !is_numeric(ty)) { return bad("expects two numeric arguments"); }
+                    Ok("f64".into())
+                }
+                "min" | "max" | "clamp" => {
+                    if arg_types.iter().any(|ty| !is_numeric(ty)) { return bad("expects numeric arguments"); }
+                    if arg_types.iter().any(|ty| ty != &arg_types[0]) { return bad("requires arguments with matching numeric types"); }
+                    Ok(arg_types[0].clone())
+                }
+                _ => {
+                    let signature = signatures.get(name).ok_or_else(|| format!("unknown function '{name}'"))?;
+                    for (index, (actual, expected)) in arg_types.iter().zip(&signature.params).enumerate() {
+                        if actual != expected && !(matches!(args[index], Expr::Number(_)) && is_numeric(expected)) {
+                            return Err(format!("argument {} to '{name}' expects {expected}, got {actual}", index + 1));
+                        }
+                    }
+                    Ok(signature.return_type.clone())
+                }
+            }
+        }
+    }
+}
+
+fn check_statements(
+    statements: &[Stmt],
+    scopes: &mut TypeScopes,
+    signatures: &std::collections::HashMap<String, FunctionSignature>,
+    expected_return: &str,
+    loop_depth: usize,
+) -> Result<(), String> {
+    for stmt in statements {
+        match stmt {
+            Stmt::Let { name, declared_type, mutable, value } => {
+                if scopes.last().is_some_and(|scope| scope.contains_key(name)) {
+                    return Err(format!("variable '{name}' is already declared in this scope"));
+                }
+                let inferred = infer_expr_type(value, scopes, signatures)?;
+                let ty = declared_type.as_deref().unwrap_or(&inferred);
+                if !compatible_type(&inferred, ty, value) {
+                    return Err(format!("variable '{name}' is declared as {ty}, but its initializer has type {inferred}"));
+                }
+                scopes.last_mut().expect("scope exists").insert(name.clone(), (ty.to_string(), *mutable));
+            }
+            Stmt::Assign { name, value } => {
+                let (target_ty, mutable) = lookup_variable(scopes, name).ok_or_else(|| format!("cannot assign to unknown variable '{name}'"))?;
+                if !mutable { return Err(format!("cannot assign to immutable variable '{name}'; declare it with 'var'")); }
+                let value_ty = infer_expr_type(value, scopes, signatures)?;
+                if !compatible_type(&value_ty, &target_ty, value) {
+                    return Err(format!("cannot assign {value_ty} to variable '{name}' of type {target_ty}"));
+                }
+            }
+            Stmt::Print(value) => { infer_expr_type(value, scopes, signatures)?; }
+            Stmt::Return(value) => {
+                let actual = infer_expr_type(value, scopes, signatures)?;
+                if !compatible_type(&actual, expected_return, value) {
+                    return Err(format!("return type mismatch: expected {expected_return}, got {actual}"));
+                }
+            }
+            Stmt::Break if loop_depth == 0 => return Err("break used outside a loop".into()),
+            Stmt::Continue if loop_depth == 0 => return Err("continue used outside a loop".into()),
+            Stmt::Break | Stmt::Continue => {}
+            Stmt::If { condition, then_branch, else_branch } => {
+                let condition_ty = infer_expr_type(condition, scopes, signatures)?;
+                if condition_ty != "bool" { return Err(format!("if condition must be bool, got {condition_ty}")); }
+                scopes.push(std::collections::HashMap::new());
+                let result = check_statements(then_branch, scopes, signatures, expected_return, loop_depth);
+                scopes.pop();
+                result?;
+                if let Some(branch) = else_branch {
+                    scopes.push(std::collections::HashMap::new());
+                    let result = check_statements(branch, scopes, signatures, expected_return, loop_depth);
+                    scopes.pop();
+                    result?;
+                }
+            }
+            Stmt::While { condition, body } => {
+                let condition_ty = infer_expr_type(condition, scopes, signatures)?;
+                if condition_ty != "bool" { return Err(format!("while condition must be bool, got {condition_ty}")); }
+                scopes.push(std::collections::HashMap::new());
+                let result = check_statements(body, scopes, signatures, expected_return, loop_depth + 1);
+                scopes.pop();
+                result?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn type_check_program(functions: &[Function]) -> Result<(), String> {
+    let signatures: std::collections::HashMap<String, FunctionSignature> = functions.iter().map(|function| {
+        (function.name.clone(), FunctionSignature {
+            params: function.params.iter().map(|(_, ty)| ty.clone()).collect(),
+            return_type: function.return_type.clone(),
+        })
+    }).collect();
+    for function in functions {
+        let mut scopes = vec![std::collections::HashMap::new()];
+        for (name, ty) in &function.params {
+            scopes[0].insert(name.clone(), (ty.clone(), false));
+        }
+        check_statements(&function.body, &mut scopes, &signatures, &function.return_type, 0)
+            .map_err(|error| format!("in function '{}': {error}", function.name))?;
+    }
+    Ok(())
 }
 
 fn validate_expr_calls(expr: &Expr, signatures: &std::collections::HashMap<String, usize>) -> Result<(), String> {
@@ -483,6 +700,7 @@ pub fn compile_to_cpp(source: &str) -> Result<String, String> {
     let tokens = lex(source)?;
     let mut parser = Parser { tokens, at: 0 };
     let functions = parser.program()?;
+    type_check_program(&functions)?;
     let signatures: std::collections::HashMap<String, usize> = functions.iter()
         .map(|function| (function.name.clone(), function.params.len())).collect();
     for function in &functions {
@@ -607,6 +825,26 @@ mod tests {
     fn rejects_break_and_continue_outside_loops() {
         assert!(compile_to_cpp("fn main() { break }").unwrap_err().contains("break used outside a loop"));
         assert!(compile_to_cpp("fn main() { continue }").unwrap_err().contains("continue used outside a loop"));
+    }
+
+    #[test]
+    fn emits_explicit_types_and_enforces_let_var_rules() {
+        let cpp = compile_to_cpp(r#"fn main() {
+            let count: i32 = 3
+            var total: i64 = 0
+            total = total + count
+            print(total)
+        }"#).unwrap();
+        assert!(cpp.contains("const std::int32_t count = 3;"));
+        assert!(cpp.contains("std::int64_t total = 0;"));
+        assert!(compile_to_cpp("fn main() { let x: i64 = 1\n x = 2 }").unwrap_err().contains("immutable variable"));
+        assert!(compile_to_cpp("fn main() { var x: bool = 1 }").unwrap_err().contains("initializer has type"));
+    }
+
+    #[test]
+    fn rejects_unknown_variables_and_invalid_conditions() {
+        assert!(compile_to_cpp("fn main() { print(missing) }").unwrap_err().contains("unknown variable"));
+        assert!(compile_to_cpp("fn main() { if 1 { print(2) } }").unwrap_err().contains("if condition must be bool"));
     }
 
     #[test]
