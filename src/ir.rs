@@ -4,6 +4,8 @@
 //! semantic checking. Backends can consume this IR without depending on parser
 //! implementation details. This is an initial structural IR, not yet SSA.
 
+use std::fmt::Write as _;
+
 use super::{BinaryOp, Expr, Function, Kind, Stmt};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
