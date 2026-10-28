@@ -1472,7 +1472,7 @@ mod ir_tests {
     }
     #[test]
     fn checks_empty_strings_and_arrays() {
-        let cpp = compile_to_cpp(r#"fn main() {
+        let cpp = crate::compile_to_cpp(r#"fn main() {
             let empty_text = ""
             let filled_text = "cinder"
             let empty_values: Array<i64> = []
@@ -1484,7 +1484,7 @@ mod ir_tests {
         }"#).unwrap();
         assert!(cpp.contains("(empty_text).empty()"));
         assert!(cpp.contains("(filled_values).empty()"));
-        assert!(compile_to_cpp("fn main() { print(is_empty(42)) }").is_err());
+        assert!(crate::compile_to_cpp("fn main() { print(is_empty(42)) }").is_err());
     }
 
 }
