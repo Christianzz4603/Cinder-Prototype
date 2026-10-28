@@ -232,6 +232,9 @@ fn fold_binary(left: &IrExpression, operator: &str, right: &IrExpression) -> Opt
                 ">=" => Some(IrExpression::Bool(a_int >= b_int)),
                 _ => None,
             };
+            if matches!(operator, "+" | "-" | "*" | "/" | "%" | "<<" | ">>") {
+                return integer_result;
+            }
             if integer_result.is_some() { return integer_result; }
         }
         let (Some(a), Some(b)) = (numeric_literal(a), numeric_literal(b)) else { return None; };
