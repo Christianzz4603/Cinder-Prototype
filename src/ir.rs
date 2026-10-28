@@ -157,16 +157,16 @@ fn cpp_string(value: &str) -> String {
     let mut out = String::from("\"");
     for ch in value.chars() {
         match ch {
-            '\\\\' => out.push_str("\\\\\\\\"),
-            '\"' => out.push_str("\\\\\""),
-            '\n' => out.push_str("\\\\n"),
-            '\r' => out.push_str("\\\\r"),
-            '\t' => out.push_str("\\\\t"),
-            c if c.is_control() => out.push_str(&format!("\\\\u{:04x}", c as u32)),
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => out.push_str(&format!("\\u{:04x}", c as u32)),
             c => out.push(c),
         }
     }
-    out.push('\"');
+    out.push('"');
     out
 }
 
@@ -241,51 +241,51 @@ fn cpp_expr(expr: &IrExpression) -> String {
 }
 
 fn emit_statements(statements: &[IrStatement], cpp: &mut String, indent: usize) {
+    use std::fmt::Write as _;
     let pad = "    ".repeat(indent);
     for stmt in statements {
         match stmt {
             IrStatement::Let { name, ty, mutable, value } => {
                 let qualifier = if *mutable { "" } else { "const " };
                 let declared = ty.as_deref().map(cpp_type).unwrap_or_else(|| "auto".to_string());
-                use std::fmt::Write as _;
                 writeln!(cpp, "{pad}{qualifier}{declared} {name} = {};", cpp_expr(value)).unwrap();
             }
-            IrStatement::Assign { name, value } => { cpp.push_str(&format!("{pad}{name} = {};\n", cpp_expr(value))); }
-            IrStatement::IndexAssign { name, index, value } => { cpp.push_str(&format!("{pad}{name}.at({}) = {};\n", cpp_expr(index), cpp_expr(value))); }
-            IrStatement::Push { name, value } => { cpp.push_str(&format!("{pad}{name}.push_back({});\n", cpp_expr(value))); }
-            IrStatement::Print(value) => { cpp.push_str(&format!("{pad}std::cout << {} << '\\n';\n", cpp_expr(value))); }
-            IrStatement::Return(value) => { cpp.push_str(&format!("{pad}return {};\n", cpp_expr(value))); }
-            IrStatement::Break => cpp.push_str(&format!("{pad}break;\n")),
-            IrStatement::Continue => cpp.push_str(&format!("{pad}continue;\n")),
+            IrStatement::Assign { name, value } => { writeln!(cpp, "{pad}{name} = {};", cpp_expr(value)).unwrap(); }
+            IrStatement::IndexAssign { name, index, value } => { writeln!(cpp, "{pad}{name}.at({}) = {};", cpp_expr(index), cpp_expr(value)).unwrap(); }
+            IrStatement::Push { name, value } => { writeln!(cpp, "{pad}{name}.push_back({});", cpp_expr(value)).unwrap(); }
+            IrStatement::Print(value) => { writeln!(cpp, "{pad}std::cout << {} << '\\n';", cpp_expr(value)).unwrap(); }
+            IrStatement::Return(value) => { writeln!(cpp, "{pad}return {};", cpp_expr(value)).unwrap(); }
+            IrStatement::Break => { writeln!(cpp, "{pad}break;").unwrap(); }
+            IrStatement::Continue => { writeln!(cpp, "{pad}continue;").unwrap(); }
             IrStatement::If { condition, then_body, else_body } => {
-                cpp.push_str(&format!("{pad}if ({}) {{\n", cpp_expr(condition)));
+                writeln!(cpp, "{pad}if ({}) {{", cpp_expr(condition)).unwrap();
                 emit_statements(then_body, cpp, indent + 1);
                 if let Some(other) = else_body {
-                    cpp.push_str(&format!("{pad}}} else {{\n"));
+                    writeln!(cpp, "{pad}}} else {{").unwrap();
                     emit_statements(other, cpp, indent + 1);
                 }
-                cpp.push_str(&format!("{pad}}}\n"));
+                writeln!(cpp, "{pad}}}").unwrap();
             }
             IrStatement::While { condition, body } => {
-                cpp.push_str(&format!("{pad}while ({}) {{\n", cpp_expr(condition)));
+                writeln!(cpp, "{pad}while ({}) {{", cpp_expr(condition)).unwrap();
                 emit_statements(body, cpp, indent + 1);
-                cpp.push_str(&format!("{pad}}}\n"));
+                writeln!(cpp, "{pad}}}").unwrap();
             }
             IrStatement::ForRange { name, start, end, body } => {
-                cpp.push_str(&format!("{pad}for (std::int64_t {name} = {}; {name} < {}; ++{name}) {{\n", cpp_expr(start), cpp_expr(end)));
+                writeln!(cpp, "{pad}for (std::int64_t {name} = {}; {name} < {}; ++{name}) {{", cpp_expr(start), cpp_expr(end)).unwrap();
                 emit_statements(body, cpp, indent + 1);
-                cpp.push_str(&format!("{pad}}}\n"));
+                writeln!(cpp, "{pad}}}").unwrap();
             }
             IrStatement::ForEach { name, iterable, body } => {
-                cpp.push_str(&format!("{pad}for (const auto& {name} : {}) {{\n", cpp_expr(iterable)));
+                writeln!(cpp, "{pad}for (const auto& {name} : {}) {{", cpp_expr(iterable)).unwrap();
                 emit_statements(body, cpp, indent + 1);
-                cpp.push_str(&format!("{pad}}}\n"));
+                writeln!(cpp, "{pad}}}").unwrap();
             }
         }
     }
 }
 
-/// Emit the bootstrap C++ backend exclusively from Cinder IR.
+/// Emit native C++ exclusively from the backend-independent Cinder IR.
 pub(crate) fn emit_cpp(program: &IrProgram) -> String {
     let mut cpp = String::from("#include <algorithm>\n#include <cmath>\n#include <cstdint>\n#include <iostream>\n#include <stdexcept>\n#include <string>\n#include <type_traits>\n#include <vector>\n\n");
     cpp.push_str(r#"
@@ -331,13 +331,13 @@ inline long long cinder_parse_int(const std::string& value) {
     for function in &program.functions {
         if function.name == "main" { continue; }
         let params = function.parameters.iter().map(|p| format!("{} {}", cpp_type(&p.ty), p.name)).collect::<Vec<_>>().join(", ");
-        cpp.push_str(&format!("{} {}({params});\n", cpp_type(&function.return_type), function.name));
+        writeln!(cpp, "{} {}({params});", cpp_type(&function.return_type), function.name).unwrap();
     }
     cpp.push('\n');
     for function in &program.functions {
         if function.name == "main" { continue; }
         let params = function.parameters.iter().map(|p| format!("{} {}", cpp_type(&p.ty), p.name)).collect::<Vec<_>>().join(", ");
-        cpp.push_str(&format!("{} {}({params}) {{\n", cpp_type(&function.return_type), function.name));
+        writeln!(cpp, "{} {}({params}) {{", cpp_type(&function.return_type), function.name).unwrap();
         emit_statements(&function.body, &mut cpp, 1);
         cpp.push_str("}\n\n");
     }
