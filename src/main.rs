@@ -55,8 +55,28 @@ fn real_main() -> Result<ExitCode, String> {
     match command {
         "check" => {
             let source = read_source(source_path)?;
-            cinder::compile_to_cpp(&source)?;
-            println!("Syntax check passed: {}", source_path.display());
+            cinder::compile_to_ir(&source)?;
+            println!("Cinder check passed: {}", source_path.display());
+            Ok(ExitCode::SUCCESS)
+        }
+        "emit-ir" => {
+            let source = read_source(source_path)?;
+            let program = cinder::compile_to_ir(&source)?;
+            println!("{program:#?}");
+            Ok(ExitCode::SUCCESS)
+        }
+        "emit-cpp" => {
+            let source = read_source(source_path)?;
+            let cpp = cinder::compile_to_cpp(&source)?;
+            let output = if args.len() >= 4 && args[2] == "-o" {
+                PathBuf::from(&args[3])
+            } else {
+                let mut path = source_path.to_path_buf();
+                path.set_extension("cpp");
+                path
+            };
+            fs::write(&output, cpp).map_err(|e| format!("cannot write {}: {e}", output.display()))?;
+            println!("Emitted C++: {}", output.display());
             Ok(ExitCode::SUCCESS)
         }
         "build" => {
