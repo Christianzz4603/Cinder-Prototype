@@ -326,7 +326,7 @@ impl Parser {
                 self.expect(Kind::RParen, "')' after function arguments")?;
                 let expected = match s.as_str() {
                     "input" => Some((0, 1)),
-                    "len" | "pop" | "abs" | "sqrt" | "floor" | "ceil" | "round" | "to_string" |
+                    "len" | "is_empty" | "pop" | "abs" | "sqrt" | "floor" | "ceil" | "round" | "to_string" |
                     "parse_int" | "is_even" | "is_odd" | "sign" => Some((1, 1)),
                     "min" | "max" | "pow" | "contains" | "starts_with" | "ends_with" => Some((2, 2)),
                     "clamp" => Some((3, 3)),
@@ -602,6 +602,7 @@ fn cpp_expr(expr: &Expr) -> String {
             let values: Vec<String> = args.iter().map(cpp_expr).collect();
             match name.as_str() {
                 "len" => format!("static_cast<long long>(cinder_len({}))", values[0]),
+                "is_empty" => format!("({}).empty()", values[0]),
                 "pop" => format!("cinder_pop({})", values[0]),
                 "abs" => format!("std::abs({})", values[0]),
                 "min" => format!("std::min({}, {})", values[0], values[1]),
@@ -808,6 +809,7 @@ fn infer_expr_type(
                     Ok("String".into())
                 }
                 "len" => { if arg_types[0] != "String" && !arg_types[0].starts_with("Array<") { return bad(format!("expects String or Array, got {}", arg_types[0])); } Ok("i64".into()) }
+                "is_empty" => { if arg_types[0] != "String" && !arg_types[0].starts_with("Array<") { return bad(format!("expects String or Array, got {}", arg_types[0])); } Ok("bool".into()) }
                 "pop" => {
                     let Some(element_ty) = arg_types[0].strip_prefix("Array<").and_then(|ty| ty.strip_suffix(">")) else { return bad(format!("expects an Array, got {}", arg_types[0])); };
                     let mutable_target = match &args[0] { Expr::Name(name) => lookup_variable(scopes, name).is_some_and(|(_, mutable)| mutable), _ => false };
@@ -1002,7 +1004,7 @@ fn type_check_program(functions: &[Function]) -> Result<(), String> {
 fn validate_expr_calls(expr: &Expr, signatures: &std::collections::HashMap<String, usize>) -> Result<(), String> {
     match expr {
         Expr::Call { name, args } => {
-            let builtin = matches!(name.as_str(), "input" | "len" | "pop" | "abs" | "sqrt" | "floor" | "ceil" | "round" | "to_string" | "parse_int" | "is_even" | "is_odd" | "sign" | "min" | "max" | "pow" | "contains" | "starts_with" | "ends_with" | "clamp");
+            let builtin = matches!(name.as_str(), "input" | "len" | "is_empty" | "pop" | "abs | "sqrt" | "floor" | "ceil" | "round" | "to_string" | "parse_int" | "is_even" | "is_odd" | "sign" | "min" | "max" | "pow" | "contains" | "starts_with" | "ends_with" | "clamp");
             if !builtin {
                 let expected = signatures.get(name).ok_or_else(|| format!("unknown function '{name}'"))?;
                 if args.len() != *expected { return Err(format!("function '{name}' expects {expected} argument(s), got {}", args.len())); }
@@ -1468,4 +1470,21 @@ mod ir_tests {
     fn ir_lowering_keeps_semantic_errors_rejected() {
         assert!(compile_to_ir("fn main() { print(missing_name) }").is_err());
     }
+    #[test]
+    fn checks_empty_strings_and_arrays() {
+        let cpp = compile_to_cpp(r#"fn main() {
+            let empty_text = ""
+            let filled_text = "cinder"
+            let empty_values: Array<i64> = []
+            let filled_values = [1, 2, 3]
+            print(is_empty(empty_text))
+            print(is_empty(filled_text))
+            print(is_empty(empty_values))
+            print(is_empty(filled_values))
+        }"#).unwrap();
+        assert!(cpp.contains("(empty_text).empty()"));
+        assert!(cpp.contains("(filled_values).empty()"));
+        assert!(compile_to_cpp("fn main() { print(is_empty(42)) }").is_err());
+    }
+
 }

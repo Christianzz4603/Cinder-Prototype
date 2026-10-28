@@ -214,6 +214,7 @@ fn cpp_expr(expr: &IrExpression) -> String {
             let values: Vec<String> = arguments.iter().map(cpp_expr).collect();
             match name.as_str() {
                 "len" => format!("static_cast<long long>(cinder_len({}))", values[0]),
+                "is_empty" => format!("({}).empty()", values[0]),
                 "pop" => format!("cinder_pop({})", values[0]),
                 "abs" => format!("std::abs({})", values[0]),
                 "min" => format!("std::min({}, {})", values[0], values[1]),
