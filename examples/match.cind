@@ -1,0 +1,14 @@
+fn main() {
+    let code = 2
+    match code {
+        1 => { print("one") }
+        2 => { print("two") }
+        _ => { print("other") }
+    }
+
+    let enabled = true
+    match enabled {
+        true => { print("enabled") }
+        false => { print("disabled") }
+    }
+}
