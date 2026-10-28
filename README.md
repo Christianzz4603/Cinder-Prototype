@@ -15,12 +15,13 @@ Currently supported:
 - `let` and `var` declarations with optional type annotations
 - string, integer, boolean, and variable expressions
 - `print(expression)`
+- Built-in utility functions: `len`, `abs`, `min`, `max`, `clamp`, `sqrt`, `pow`, `floor`, `ceil`, `round`, `to_string`, `parse_int`, `input`, `contains`, `starts_with`, `ends_with`, `is_even`, `is_odd`, and `sign`
 - `return expression`
 - `if condition { ... }` and optional `else { ... }` blocks, including nesting
 - Arithmetic, comparison, equality, logical, unary, and grouped expressions
 - `//` comments and common string escapes
 
-Not implemented yet: loops, user-defined functions, real static type checking, ownership/borrowing, a custom intermediate representation, LLVM integration, package management, and cross-compilation. Type annotations are accepted but not enforced, and this prototype does not yet guarantee memory safety. The current transpiler is a bootstrap, not yet a production compiler or a memory-safety system.
+Not implemented yet: loops, user-defined functions, a full type-aware standard library, real static type checking, ownership/borrowing, a custom intermediate representation, LLVM integration, package management, and cross-compilation. Type annotations are accepted but not enforced, and this prototype does not yet guarantee memory safety. The current transpiler is a bootstrap, not yet a production compiler or a memory-safety system.
 
 ## Try it
 

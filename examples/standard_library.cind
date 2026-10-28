@@ -1,0 +1,16 @@
+fn main() {
+    let name = input("What is your name? ")
+    let score = 87
+    let clamped_score = clamp(score, 0, 100)
+
+    print("Hello, " + name)
+    print("Your score: " + to_string(clamped_score))
+    print("Name length: " + to_string(len(name)))
+    print("Rounded math: " + to_string(round(sqrt(80))))
+    print("Passed: " + to_string(clamped_score >= 75))
+    print("Even score: " + to_string(is_even(score)))
+
+    if contains(name, "Cinder") {
+        print("You found the language name!")
+    }
+}

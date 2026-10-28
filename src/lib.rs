@@ -5,7 +5,7 @@ enum Kind {
     Ident(String),
     String(String),
     Number(String),
-    LParen, RParen, LBrace, RBrace, Colon, Equal,
+    LParen, RParen, LBrace, RBrace, Colon, Comma, Equal,
     Plus, Minus, Star, Slash, Percent, Bang,
     Less, LessEqual, Greater, GreaterEqual, EqualEqual, BangEqual,
     AndAnd, OrOr, Newline, Eof,
@@ -32,6 +32,7 @@ fn lex(source: &str) -> Result<Vec<Token>, String> {
             '{' => { i += 1; Kind::LBrace }
             '}' => { i += 1; Kind::RBrace }
             ':' => { i += 1; Kind::Colon }
+            ',' => { i += 1; Kind::Comma }
             '+' => { i += 1; Kind::Plus }
             '-' => { i += 1; Kind::Minus }
             '*' => { i += 1; Kind::Star }
@@ -97,6 +98,7 @@ enum Expr {
     Number(String),
     Bool(bool),
     Name(String),
+    Call { name: String, args: Vec<Expr> },
     Unary { op: Kind, value: Box<Expr> },
     Binary { left: Box<Expr>, op: BinaryOp, right: Box<Expr> },
 }
@@ -139,6 +141,34 @@ impl Parser {
             Kind::Number(n) => Ok(Expr::Number(n)),
             Kind::Ident(s) if s == "true" => Ok(Expr::Bool(true)),
             Kind::Ident(s) if s == "false" => Ok(Expr::Bool(false)),
+            Kind::Ident(s) if matches!(&self.current().kind, Kind::LParen) => {
+                self.advance();
+                let mut args = Vec::new();
+                if !matches!(&self.current().kind, Kind::RParen) {
+                    loop {
+                        args.push(self.expression()?);
+                        if matches!(&self.current().kind, Kind::Comma) {
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                self.expect(Kind::RParen, "')' after function arguments")?;
+                let expected = match s.as_str() {
+                    "input" => Some((0, 1)),
+                    "len" | "abs" | "sqrt" | "floor" | "ceil" | "round" | "to_string" |
+                    "parse_int" | "is_even" | "is_odd" | "sign" => Some((1, 1)),
+                    "min" | "max" | "pow" | "contains" | "starts_with" | "ends_with" => Some((2, 2)),
+                    "clamp" => Some((3, 3)),
+                    _ => return Err(format!("line {}: unknown function '{s}'", token.line)),
+                }.expect("known function");
+                if args.len() < expected.0 || args.len() > expected.1 {
+                    let expected_text = if expected.0 == expected.1 { expected.0.to_string() } else { format!("{} or {}", expected.0, expected.1) };
+                    return Err(format!("line {}: function '{s}' expects {expected_text} argument(s), got {}", token.line, args.len()));
+                }
+                Ok(Expr::Call { name: s, args })
+            }
             Kind::Ident(s) => Ok(Expr::Name(s)),
             Kind::LParen => {
                 let value = self.expression()?;
@@ -265,6 +295,31 @@ fn cpp_expr(expr: &Expr) -> String {
         Expr::Number(n) => n.clone(),
         Expr::Bool(b) => b.to_string(),
         Expr::Name(n) => n.clone(),
+        Expr::Call { name, args } => {
+            let values: Vec<String> = args.iter().map(cpp_expr).collect();
+            match name.as_str() {
+                "len" => format!("static_cast<long long>(cinder_len({}))", values[0]),
+                "abs" => format!("std::abs({})", values[0]),
+                "min" => format!("std::min({}, {})", values[0], values[1]),
+                "max" => format!("std::max({}, {})", values[0], values[1]),
+                "clamp" => format!("std::clamp({}, {}, {})", values[0], values[1], values[2]),
+                "sqrt" => format!("std::sqrt({})", values[0]),
+                "pow" => format!("std::pow({}, {})", values[0], values[1]),
+                "floor" => format!("std::floor({})", values[0]),
+                "ceil" => format!("std::ceil({})", values[0]),
+                "round" => format!("std::round({})", values[0]),
+                "input" => format!("cinder_input({})", values.join(", ")),
+                "to_string" => format!("cinder_to_string({})", values[0]),
+                "parse_int" => format!("std::stoll({})", values[0]),
+                "contains" => format!("({}.find({}) != std::string::npos)", values[0], values[1]),
+                "starts_with" => format!("({}.rfind({}, 0) == 0)", values[0], values[1]),
+                "ends_with" => format!("({}.size() >= {}.size() && {}.compare({}.size() - {}.size(), {}.size(), {}) == 0)", values[0], values[1], values[0], values[0], values[1], values[1], values[1]),
+                "is_even" => format!("(({}) % 2 == 0)", values[0]),
+                "is_odd" => format!("(({}) % 2 != 0)", values[0]),
+                "sign" => format!("(({}) > 0 ? 1 : (({}) < 0 ? -1 : 0))", values[0], values[0]),
+                _ => unreachable!("function names validated by parser"),
+            }
+        }
         Expr::Unary { op, value } => {
             let symbol = match op { Kind::Minus => "-", Kind::Bang => "!", _ => unreachable!() };
             format!("({symbol}{})", cpp_expr(value))
@@ -312,4 +367,35 @@ pub fn compile_to_cpp(source: &str) -> Result<String, String> {
     emit_statements(&statements, &mut cpp, 1);
     cpp.push_str("    return 0;\n}\n");
     Ok(cpp)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::compile_to_cpp;
+
+    #[test]
+    fn emits_common_standard_library_calls() {
+        let source = "fn main() {\n let name = \"Cinder\"\n print(len(name))\n print(max(4, 9))\n print(clamp(12, 0, 10))\n print(contains(name, \"in\"))\n print(is_even(8))\n}\n";
+        let cpp = compile_to_cpp(source).unwrap();
+        assert!(cpp.contains("cinder_len(name)"));
+        assert!(cpp.contains("std::max(4, 9)"));
+        assert!(cpp.contains("std::clamp(12, 0, 10)"));
+        assert!(cpp.contains("std::string::npos") || cpp.contains(".find("));
+        assert!(cpp.contains("% 2 == 0"));
+    }
+
+    #[test]
+    fn rejects_unknown_functions_and_wrong_argument_counts() {
+        assert!(compile_to_cpp("fn main() { print(magic(1)) }").unwrap_err().contains("unknown function"));
+        assert!(compile_to_cpp("fn main() { print(min(1)) }").unwrap_err().contains("expects 2 argument"));
+    }
+
+    #[test]
+    fn emits_math_and_input_helpers() {
+        let cpp = compile_to_cpp("fn main() {\n let n = sqrt(81)\n let answer = input(\"Name? \")\n print(to_string(n))\n print(answer)\n}\n").unwrap();
+        assert!(cpp.contains("std::sqrt(81)"));
+        assert!(cpp.contains("cinder_input(std::string(\"Name? \"))"));
+        assert!(cpp.contains("cinder_to_string(n)"));
+    }
 }
