@@ -565,7 +565,7 @@ fn cpp_string(value: &str) -> String {
         match ch {
             '\\' => out.push_str("\\\\"),
             '"' => out.push_str("\\\""),
-            '\n' => out.push_str("\n"),
+            '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
             c if c.is_control() => { let _ = write!(out, "\\u{:04x}", c as u32); }
