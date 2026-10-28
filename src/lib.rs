@@ -1655,8 +1655,10 @@ multiline \n text""")
     fn reads_first_and_last_array_elements() {
         let cpp = crate::compile_to_cpp("fn main() { let values = [3, 6, 9]\n print(first(values))\n print(last(values))\n print(contains(values, 6)) }").unwrap();
         assert!(cpp.contains("cinder_first(values)"));
-        assert!(cpp.contains("cinder_last(values)"));\n        assert!(cpp.contains("cinder_contains(values, 6)"));
-        assert!(crate::compile_to_cpp("fn main() { print(first(12)) }").unwrap_err().contains("expects an Array"));\n        assert!(crate::compile_to_cpp("fn main() { print(contains([1, 2], \"x\")) }").is_err());
+        assert!(cpp.contains("cinder_last(values)"));
+        assert!(cpp.contains("cinder_contains(values, 6)"));
+        assert!(crate::compile_to_cpp("fn main() { print(first(12)) }").unwrap_err().contains("expects an Array"));
+        assert!(crate::compile_to_cpp("fn main() { print(contains([1, 2], \"x\")) }").is_err());
     }
 }
 
