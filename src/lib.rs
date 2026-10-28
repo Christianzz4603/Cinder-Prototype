@@ -1750,13 +1750,13 @@ multiline \n text""")
         let cpp = crate::compile_to_cpp(r#"fn main() {
     let offset: i64 = 5
     let add = fn(x: i64) => x + offset
-    let double = fn(x: i64) => x * 2
+    let twice_value = fn(x: i64) => x * 2
     print(add(3))
-    print(double(4))
+    print(twice_value(4))
 }"#).unwrap();
         assert!(cpp.contains("[=](std::int64_t x) { return (x + offset); }"));
         assert!(cpp.contains("add(3)"));
-        assert!(cpp.contains("double(4)"));
+        assert!(cpp.contains("twice_value(4)"));
         assert!(crate::compile_to_cpp("fn main() { let value = 3\n print(value(1)) }").unwrap_err().contains("not callable"));
     }
     #[test]

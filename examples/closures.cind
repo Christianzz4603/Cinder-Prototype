@@ -1,7 +1,7 @@
 fn main() {
     let offset: i64 = 5
     let add = fn(x: i64) => x + offset
-    let double = fn(x: i64) => x * 2
+    let twice_value = fn(x: i64) => x * 2
     print(add(3))
-    print(double(4))
+    print(twice_value(4))
 }
