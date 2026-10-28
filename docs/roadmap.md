@@ -35,7 +35,8 @@ This roadmap describes intended work, not completed features.
 - [ ] Add benchmarks for compile time, executable size, and runtime throughput
 - [ ] Add allocation-aware strings and explicit error handling for runtime conversions
 - [x] Add typed user-defined functions, recursion, and forward-call support
-- [ ] Add loop constructs before engine-scale examples
+- [x] Add `while` loops and variable assignment
+- [ ] Add `for` loops, `break`, and `continue` before engine-scale examples
 
 ## Milestone 0.4: Native backend
 - [ ] Evaluate LLVM integration for supported targets

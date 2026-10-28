@@ -105,7 +105,7 @@ enum Expr {
 }
 
 #[derive(Debug)]
-enum Stmt { Let { name: String, value: Expr }, Print(Expr), Return(Expr), If { condition: Expr, then_branch: Vec<Stmt>, else_branch: Option<Vec<Stmt>> } }
+enum Stmt { Let { name: String, value: Expr }, Assign { name: String, value: Expr }, Print(Expr), Return(Expr), If { condition: Expr, then_branch: Vec<Stmt>, else_branch: Option<Vec<Stmt>> }, While { condition: Expr, body: Vec<Stmt> } }
 
 #[derive(Debug)]
 struct Function { name: String, params: Vec<(String, String)>, return_type: String, body: Vec<Stmt> }
@@ -245,6 +245,18 @@ impl Parser {
                 let value = self.expression()?; self.expect(Kind::RParen, "')' after print value")?; Ok(Stmt::Print(value))
             }
             Kind::Ident(word) if word == "return" => { self.advance(); Ok(Stmt::Return(self.expression()?)) }
+            Kind::Ident(name) if matches!(self.tokens.get(self.at + 1).map(|token| &token.kind), Some(Kind::Equal)) => {
+                let name = name.clone();
+                self.advance();
+                self.expect(Kind::Equal, "'=' in assignment")?;
+                Ok(Stmt::Assign { name, value: self.expression()? })
+            }
+            Kind::Ident(word) if word == "while" => {
+                self.advance();
+                let condition = self.expression()?;
+                let body = self.block()?;
+                Ok(Stmt::While { condition, body })
+            }
             Kind::Ident(word) if word == "if" => {
                 self.advance(); let condition = self.expression()?; let then_branch = self.block()?;
                 self.skip_newlines();
@@ -382,6 +394,7 @@ fn emit_statements(statements: &[Stmt], cpp: &mut String, indent: usize) {
     for stmt in statements {
         match stmt {
             Stmt::Let { name, value } => { writeln!(cpp, "{pad}auto {name} = {};", cpp_expr(value)).unwrap(); }
+            Stmt::Assign { name, value } => { writeln!(cpp, "{pad}{name} = {};", cpp_expr(value)).unwrap(); }
             Stmt::Print(value) => { writeln!(cpp, "{pad}std::cout << {} << '\\n';", cpp_expr(value)).unwrap(); }
             Stmt::Return(value) => { writeln!(cpp, "{pad}return {};", cpp_expr(value)).unwrap(); }
             Stmt::If { condition, then_branch, else_branch } => {
@@ -391,6 +404,11 @@ fn emit_statements(statements: &[Stmt], cpp: &mut String, indent: usize) {
                     writeln!(cpp, "{pad}}} else {{").unwrap();
                     emit_statements(else_branch, cpp, indent + 1);
                 }
+                writeln!(cpp, "{pad}}}").unwrap();
+            }
+            Stmt::While { condition, body } => {
+                writeln!(cpp, "{pad}while ({}) {{", cpp_expr(condition)).unwrap();
+                emit_statements(body, cpp, indent + 1);
                 writeln!(cpp, "{pad}}}").unwrap();
             }
         }
@@ -436,11 +454,15 @@ fn validate_expr_calls(expr: &Expr, signatures: &std::collections::HashMap<Strin
 fn validate_function_calls(statements: &[Stmt], signatures: &std::collections::HashMap<String, usize>) -> Result<(), String> {
     for stmt in statements {
         match stmt {
-            Stmt::Let { value, .. } | Stmt::Print(value) | Stmt::Return(value) => validate_expr_calls(value, signatures)?,
+            Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Print(value) | Stmt::Return(value) => validate_expr_calls(value, signatures)?,
             Stmt::If { condition, then_branch, else_branch } => {
                 validate_expr_calls(condition, signatures)?;
                 validate_function_calls(then_branch, signatures)?;
                 if let Some(branch) = else_branch { validate_function_calls(branch, signatures)?; }
+            }
+            Stmt::While { condition, body } => {
+                validate_expr_calls(condition, signatures)?;
+                validate_function_calls(body, signatures)?;
             }
         }
     }
@@ -539,6 +561,22 @@ inline long long cinder_parse_int(const std::string& value) {
 #[cfg(test)]
 mod tests {
     use super::compile_to_cpp;
+
+    #[test]
+    fn compiles_while_loops_and_variable_assignment() {
+        let cpp = compile_to_cpp(r#"fn main() {
+            var i: i64 = 1
+            var total: i64 = 0
+            while i <= 5 {
+                total = total + i
+                i = i + 1
+            }
+            print(total)
+        }"#).unwrap();
+        assert!(cpp.contains("while ((i <= 5))"));
+        assert!(cpp.contains("total = (total + i);"));
+        assert!(cpp.contains("i = (i + 1);"));
+    }
 
     #[test]
     fn compiles_typed_user_functions_and_forward_calls() {
