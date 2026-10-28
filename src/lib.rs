@@ -598,7 +598,7 @@ mod tests {
                 print(message)
             }
         }"#).unwrap();
-        assert!(cpp.contains("std::string message = std::string(\"Cinder\");"));
+        assert!(cpp.contains("auto message = std::string(\"Cinder\");"));
         assert!(cpp.contains("continue;"));
         assert!(cpp.contains("break;"));
     }
