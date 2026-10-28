@@ -870,7 +870,10 @@ fn check_statements(
                 if scopes.last().is_some_and(|scope| scope.contains_key(name)) {
                     return Err(format!("variable '{name}' is already declared in this scope"));
                 }
-                let inferred = infer_expr_type(value, scopes, signatures)?;
+                let inferred = match (declared_type.as_deref(), value) {
+                    (Some(ty), Expr::Array(items)) if items.is_empty() && ty.starts_with("Array<") => ty.to_string(),
+                    _ => infer_expr_type(value, scopes, signatures)?,
+                };
                 let ty = declared_type.as_deref().unwrap_or(&inferred);
                 if !compatible_type(&inferred, ty, value) {
                     return Err(format!("variable '{name}' is declared as {ty}, but its initializer has type {inferred}"));
@@ -1475,8 +1478,7 @@ mod ir_tests {
         let cpp = crate::compile_to_cpp(r#"fn main() {
             let empty_text = ""
             let filled_text = "cinder"
-            var empty_values = [0]
-            print(pop(empty_values))
+            let empty_values: Array<i64> = []
             let filled_values = [1, 2, 3]
             print(is_empty(empty_text))
             print(is_empty(filled_text))
