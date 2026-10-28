@@ -241,6 +241,8 @@ fn cpp_expr(expr: &IrExpression) -> String {
                 "last" => format!("cinder_last({})", values[0]),
                 "pop" => format!("cinder_pop({})", values[0]),
                 "remove_at" => format!("cinder_remove_at({}, {})", values[0], values[1]),
+                "clear" => format!("cinder_clear({})", values[0]),
+                "reserve" => format!("cinder_reserve({}, {})", values[0], values[1]),
                 "abs" => format!("std::abs({})", values[0]),
                 "min" => format!("std::min({}, {})", values[0], values[1]),
                 "max" => format!("std::max({}, {})", values[0], values[1]),
@@ -389,6 +391,18 @@ inline T cinder_remove_at(std::vector<T>& value, long long index) {
     T result = *position;
     value.erase(position);
     return result;
+}
+template <typename T>
+inline long long cinder_clear(std::vector<T>& value) {
+    const auto removed = static_cast<long long>(value.size());
+    value.clear();
+    return removed;
+}
+template <typename T>
+inline long long cinder_reserve(std::vector<T>& value, long long requested) {
+    if (requested < 0) throw std::invalid_argument("reserve: capacity must not be negative");
+    value.reserve(static_cast<std::size_t>(requested));
+    return static_cast<long long>(value.capacity());
 }
 inline std::string cinder_input(const std::string& prompt = {}) {
     if (!prompt.empty()) std::cout << prompt << std::flush;

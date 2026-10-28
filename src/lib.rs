@@ -333,9 +333,9 @@ impl Parser {
                 self.expect(Kind::RParen, "')' after function arguments")?;
                 let expected = match s.as_str() {
                     "input" => Some((0, 1)),
-                    "len" | "is_empty" | "capacity" | "first" | "last" | "pop" | "abs" | "sqrt" | "floor" | "ceil" | "round" | "to_string" |
+                    "len" | "is_empty" | "capacity" | "first" | "last" | "pop" | "clear" | "abs" | "sqrt" | "floor" | "ceil" | "round" | "to_string" |
                     "parse_int" | "is_even" | "is_odd" | "sign" => Some((1, 1)),
-                    "min" | "max" | "pow" | "contains" | "starts_with" | "ends_with" | "remove_at" => Some((2, 2)),
+                    "min" | "max" | "pow" | "contains" | "starts_with" | "ends_with" | "remove_at" | "reserve" => Some((2, 2)),
                     "clamp" => Some((3, 3)),
                     _ => None,
                 };
@@ -669,6 +669,8 @@ fn cpp_expr(expr: &Expr) -> String {
                 "last" => format!("cinder_last({})", values[0]),
                 "pop" => format!("cinder_pop({})", values[0]),
                 "remove_at" => format!("cinder_remove_at({}, {})", values[0], values[1]),
+                "clear" => format!("cinder_clear({})", values[0]),
+                "reserve" => format!("cinder_reserve({}, {})", values[0], values[1]),
                 "abs" => format!("std::abs({})", values[0]),
                 "min" => format!("std::min({}, {})", values[0], values[1]),
                 "max" => format!("std::max({}, {})", values[0], values[1]),
@@ -952,6 +954,19 @@ fn infer_expr_type(
                     if !mutable_target { return bad("expects a mutable array variable declared with var".to_string()); }
                     Ok(element_ty.to_string())
                 }
+                "clear" => {
+                    if !arg_types[0].starts_with("Array<") { return bad(format!("expects an Array, got {}", arg_types[0])); }
+                    let mutable_target = match &args[0] { Expr::Name(name) => lookup_variable(scopes, name).is_some_and(|(_, mutable)| mutable), _ => false };
+                    if !mutable_target { return bad("expects a mutable array variable declared with var".to_string()); }
+                    Ok("i64".into())
+                }
+                "reserve" => {
+                    if !arg_types[0].starts_with("Array<") { return bad(format!("expects an Array, got {}", arg_types[0])); }
+                    if !is_integer(&arg_types[1]) { return bad(format!("expects an integer capacity, got {}", arg_types[1])); }
+                    let mutable_target = match &args[0] { Expr::Name(name) => lookup_variable(scopes, name).is_some_and(|(_, mutable)| mutable), _ => false };
+                    if !mutable_target { return bad("expects a mutable array variable declared with var".to_string()); }
+                    Ok("i64".into())
+                }
                 "contains" => {
                     if arg_types[0] == "String" && arg_types[1] == "String" { return Ok("bool".into()); }
                     if let Some(element_ty) = arg_types[0].strip_prefix("Array<").and_then(|ty| ty.strip_suffix('>')) {
@@ -1212,7 +1227,7 @@ fn type_check_program(functions: &[Function]) -> Result<(), String> {
 fn validate_expr_calls(expr: &Expr, signatures: &std::collections::HashMap<String, Vec<usize>>) -> Result<(), String> {
     match expr {
         Expr::Call { name, args } => {
-            let builtin = matches!(name.as_str(), "input" | "len" | "is_empty" | "capacity" | "first" | "last" | "pop" | "remove_at" | "abs" | "sqrt" | "floor" | "ceil" | "round" | "to_string" | "parse_int" | "is_even" | "is_odd" | "sign" | "min" | "max" | "pow" | "contains" | "starts_with" | "ends_with" | "clamp");
+            let builtin = matches!(name.as_str(), "input" | "len" | "is_empty" | "capacity" | "first" | "last" | "pop" | "remove_at" | "clear" | "reserve" | "abs" | "sqrt" | "floor" | "ceil" | "round" | "to_string" | "parse_int" | "is_even" | "is_odd" | "sign" | "min" | "max" | "pow" | "contains" | "starts_with" | "ends_with" | "clamp");
             if !builtin {
                 let expected = signatures.get(name).ok_or_else(|| format!("unknown function '{name}'"))?;
                 if !expected.contains(&args.len()) {
@@ -1667,6 +1682,21 @@ multiline \n text""")
         assert!(cpp.contains("cinder_contains(values, 6)"));
         assert!(crate::compile_to_cpp("fn main() { print(first(12)) }").unwrap_err().contains("expects an Array"));
         assert!(crate::compile_to_cpp("fn main() { print(contains([1, 2], \"x\")) }").is_err());
+
+    #[test]
+    fn clears_and_reserves_mutable_arrays() {
+        let cpp = crate::compile_to_cpp(r#"fn main() {
+            var values = [1, 2, 3]
+            print(reserve(values, 16))
+            print(clear(values))
+            print(len(values))
+        }"#).unwrap();
+        assert!(cpp.contains("cinder_reserve(values, 16)"));
+        assert!(cpp.contains("cinder_clear(values)"));
+        assert!(crate::compile_to_cpp("fn main() { let values = [1, 2]\n print(clear(values)) }").unwrap_err().contains("mutable array variable"));
+        assert!(crate::compile_to_cpp("fn main() { var values = [1, 2]\n print(reserve(values, \"x\")) }").is_err());
+    }
+
     #[test]
     fn removes_array_elements_by_index() {
         let cpp = crate::compile_to_cpp(r#"fn main() {

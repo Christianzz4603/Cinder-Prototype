@@ -8,4 +8,6 @@ fn main() {
     print(remove_at(values, 2))
     print(pop(values))
     print(len(values))
+    print(clear(values))
+    print(len(values))
 }
