@@ -21,11 +21,11 @@ Currently supported:
 - Arithmetic, comparison, equality, logical, unary, and grouped expressions
 - `//` comments and common string escapes
 
-Not implemented yet: loops, user-defined functions, a full type-aware standard library, real static type checking, ownership/borrowing, a custom intermediate representation, LLVM integration, package management, and cross-compilation. Type annotations are accepted but not enforced, and this prototype does not yet guarantee memory safety. The current transpiler is a bootstrap, not yet a production compiler or a memory-safety system.
+Not implemented yet: loops, user-defined functions, a full type-aware standard library, real static type checking, ownership/borrowing, a custom intermediate representation, LLVM integration, package management, and cross-compilation. The native backend currently delegates optimization to the selected C++ compiler. A game engine would be a separate library/framework built on top of Cinder, not the language compiler itself; graphics, input, audio, asset loading, platform APIs, and a game loop still need to be built. Type annotations are accepted but not enforced, and this prototype does not yet guarantee memory safety. The current transpiler is a bootstrap, not yet a production compiler or a memory-safety system.
 
 ## Try it
 
-Requirements: Rust stable and a C++20 compiler such as clang++ or g++.
+Requirements: Rust stable and a C++20 compiler such as clang++ or g++.\n\nRelease builds default to native `-O3` optimization. Set `CINDER_OPT_LEVEL=0|1|2|3|s|z` to choose a compiler optimization level. Set `CINDER_LTO=1` to enable link-time optimization when your C++ toolchain supports it. Cinder does not force `-march=native`, so binaries remain more portable across CPUs by default.
 
     cargo test
     cargo run -- check examples/hello.cind

@@ -28,6 +28,14 @@ This roadmap describes intended work, not completed features.
 - [ ] Add compile-fail tests for invalid programs
 - [ ] Document guarantees and known limitations precisely
 
+## Milestone 0.35: Runtime and performance foundations
+- [x] Emit the runtime helpers required by built-in functions
+- [x] Exercise every example through native compilation in CI
+- [x] Use optimized native compiler output with configurable optimization and optional LTO
+- [ ] Add benchmarks for compile time, executable size, and runtime throughput
+- [ ] Add allocation-aware strings and explicit error handling for runtime conversions
+- [ ] Add loop constructs and user-defined functions before engine-scale examples
+
 ## Milestone 0.4: Native backend
 - [ ] Evaluate LLVM integration for supported targets
 - [ ] Add target triples and cross-compilation configuration

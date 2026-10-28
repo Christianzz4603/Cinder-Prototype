@@ -15,11 +15,27 @@ fn build(source_path: &Path, output: &Path) -> Result<(), String> {
     let temp_cpp = env::temp_dir().join(format!("cinder-{}.cpp", std::process::id()));
     fs::write(&temp_cpp, cpp).map_err(|e| format!("cannot write temporary C++ file: {e}"))?;
     let compiler = env::var("CXX").unwrap_or_else(|_| "c++".to_string());
-    let result = Command::new(&compiler)
-        .arg("-std=c++20").arg("-O2").arg("-Wall").arg("-Wextra").arg("-pedantic")
-        .arg(&temp_cpp).arg("-o").arg(output).output()
-        .map_err(|e| format!("could not start native compiler '{compiler}': {e}"))?;
+    let optimization = env::var("CINDER_OPT_LEVEL").unwrap_or_else(|_| "3".to_string());
+    if !matches!(optimization.as_str(), "0" | "1" | "2" | "3" | "s" | "z") {
+        let _ = fs::remove_file(&temp_cpp);
+        return Err("CINDER_OPT_LEVEL must be one of 0, 1, 2, 3, s, or z".into());
+    }
+    let mut command = Command::new(&compiler);
+    command
+        .arg("-std=c++20")
+        .arg(format!("-O{optimization}"))
+        .arg("-DNDEBUG")
+        .arg("-Wall")
+        .arg("-Wextra")
+        .arg("-pedantic");
+    if env::var("CINDER_LTO").is_ok_and(|value| value == "1" || value.eq_ignore_ascii_case("true")) {
+        command.arg("-flto");
+    }
+    let result = command
+        .arg(&temp_cpp).arg("-o").arg(output).output();
     let _ = fs::remove_file(&temp_cpp);
+    let result = result
+        .map_err(|e| format!("could not start native compiler '{compiler}': {e}"))?;
     if !result.status.success() {
         return Err(format!("native compiler failed:\n{}{}", String::from_utf8_lossy(&result.stdout), String::from_utf8_lossy(&result.stderr)));
     }

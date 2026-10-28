@@ -310,10 +310,10 @@ fn cpp_expr(expr: &Expr) -> String {
                 "round" => format!("std::round({})", values[0]),
                 "input" => format!("cinder_input({})", values.join(", ")),
                 "to_string" => format!("cinder_to_string({})", values[0]),
-                "parse_int" => format!("std::stoll({})", values[0]),
+                "parse_int" => format!("cinder_parse_int({})", values[0]),
                 "contains" => format!("({}.find({}) != std::string::npos)", values[0], values[1]),
-                "starts_with" => format!("({}.rfind({}, 0) == 0)", values[0], values[1]),
-                "ends_with" => format!("({}.size() >= {}.size() && {}.compare({}.size() - {}.size(), {}.size(), {}) == 0)", values[0], values[1], values[0], values[0], values[1], values[1], values[1]),
+                "starts_with" => format!("({}.starts_with({}))", values[0], values[1]),
+                "ends_with" => format!("({}.ends_with({}))", values[0], values[1]),
                 "is_even" => format!("(({}) % 2 == 0)", values[0]),
                 "is_odd" => format!("(({}) % 2 != 0)", values[0]),
                 "sign" => format!("(({}) > 0 ? 1 : (({}) < 0 ? -1 : 0))", values[0], values[0]),
@@ -363,9 +363,60 @@ pub fn compile_to_cpp(source: &str) -> Result<String, String> {
     let tokens = lex(source)?;
     let mut parser = Parser { tokens, at: 0 };
     let statements = parser.program()?;
-    let mut cpp = String::from("#include <iostream>\n#include <string>\n\nint main() {\n");
+    let mut cpp = String::from(
+        "#include <algorithm>\\n#include <cmath>\\n#include <iostream>\\n#include <stdexcept>\\n#include <string>\\n#include <type_traits>\\n\\n"
+    );
+    cpp.push_str(r#"
+inline long long cinder_len(const std::string& value) {
+    return static_cast<long long>(value.size());
+}
+
+inline std::string cinder_input(const std::string& prompt = {}) {
+    if (!prompt.empty()) {
+        std::cout << prompt << std::flush;
+    }
+    std::string value;
+    if (!std::getline(std::cin, value)) {
+        return {};
+    }
+    return value;
+}
+
+inline std::string cinder_to_string(const std::string& value) {
+    return value;
+}
+
+inline std::string cinder_to_string(const char* value) {
+    return value == nullptr ? std::string{} : std::string(value);
+}
+
+inline std::string cinder_to_string(bool value) {
+    return value ? "true" : "false";
+}
+
+template <typename T>
+    requires std::is_arithmetic_v<T>
+inline std::string cinder_to_string(T value) {
+    if constexpr (std::is_same_v<T, char> || std::is_same_v<T, signed char> ||
+                  std::is_same_v<T, unsigned char>) {
+        return std::to_string(static_cast<int>(value));
+    } else {
+        return std::to_string(value);
+    }
+}
+
+inline long long cinder_parse_int(const std::string& value) {
+    std::size_t consumed = 0;
+    const long long result = std::stoll(value, &consumed, 10);
+    if (consumed != value.size()) {
+        throw std::invalid_argument("parse_int: trailing characters in integer");
+    }
+    return result;
+}
+"#);
+    cpp.push_str("\\nint main() {\\n");
     emit_statements(&statements, &mut cpp, 1);
-    cpp.push_str("    return 0;\n}\n");
+    cpp.push_str("    return 0;\\n}\\n");
     Ok(cpp)
 }
 
@@ -389,6 +440,30 @@ mod tests {
     fn rejects_unknown_functions_and_wrong_argument_counts() {
         assert!(compile_to_cpp("fn main() { print(magic(1)) }").unwrap_err().contains("unknown function"));
         assert!(compile_to_cpp("fn main() { print(min(1)) }").unwrap_err().contains("expects 2 argument"));
+    }
+
+    #[test]
+    fn emits_runtime_helpers_and_uses_cxx20_string_operations() {
+        let cpp = compile_to_cpp(
+            "fn main() {\\n let text = input()\\n print(to_string(contains(text, \\"x\\")))\\n print(parse_int(\\"42\\"))\\n print(starts_with(text, \\"a\\"))\\n print(ends_with(text, \\"z\\"))\\n}\\n",
+        )
+        .unwrap();
+        assert!(cpp.contains("inline long long cinder_len"));
+        assert!(cpp.contains("inline std::string cinder_input"));
+        assert!(cpp.contains("inline std::string cinder_to_string(bool value)"));
+        assert!(cpp.contains("inline long long cinder_parse_int"));
+        assert!(cpp.contains(".starts_with("));
+        assert!(cpp.contains(".ends_with("));
+    }
+
+    #[test]
+    fn compiles_nested_control_flow_and_string_concatenation() {
+        let cpp = compile_to_cpp(
+            "fn main() {\\n let name = \\"Cinder\\"\\n if contains(name, \\"in\\") { print(\\"Hello, \\" + name) } else { print(\\"Nope\\") }\\n}\\n",
+        )
+        .unwrap();
+        assert!(cpp.contains("find(std::string(\\"in\\"))"));
+        assert!(cpp.contains("std::string(\\"Hello, \\") + name"));
     }
 
     #[test]
