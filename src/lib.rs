@@ -850,6 +850,15 @@ fn infer_expr_type(
                 }
                 _ => {
                     let candidates = signatures.get(name).ok_or_else(|| format!("unknown function '{name}'"))?;
+                    if candidates.iter().all(|signature| signature.params.len() != arg_types.len()) {
+                        let mut counts: Vec<usize> = candidates.iter().map(|signature| signature.params.len()).collect();
+                        counts.sort_unstable();
+                        counts.dedup();
+                        if counts.len() == 1 {
+                            return Err(format!("function '{name}' expects {} argument(s), got {}", counts[0], arg_types.len()));
+                        }
+                        return Err(format!("no overload of '{name}' accepts {} argument(s)", arg_types.len()));
+                    }
                     let mut viable: Vec<(usize, &FunctionSignature)> = candidates.iter()
                         .filter(|signature| signature.params.len() == arg_types.len())
                         .filter_map(|signature| {
