@@ -338,7 +338,13 @@ impl Parser {
         match ty.as_str() {
             "i32" | "i64" | "u32" | "u64" | "f32" | "f64" | "bool" | "String" => Ok(ty),
             "str" => Ok("String".to_string()),
-            _ => Err(format!("line {}: unsupported type '{ty}' (supported: i32, i64, u32, u64, f32, f64, bool, String)", self.current().line)),
+            "Array" => {
+                self.expect(Kind::Less, "'<' after Array")?;
+                let element = self.parse_type("an array element type")?;
+                self.expect(Kind::Greater, "'>' after array element type")?;
+                Ok(format!("Array<{element}>"))
+            }
+            _ => Err(format!("line {}: unsupported type '{ty}' (supported: i32, i64, u32, u64, f32, f64, bool, String, Array<T>)", self.current().line)),
         }
     }
     fn function(&mut self) -> Result<Function, String> {
@@ -465,7 +471,7 @@ fn emit_statements(statements: &[Stmt], cpp: &mut String, indent: usize) {
         match stmt {
             Stmt::Let { name, declared_type, mutable, value } => {
                 let qualifier = if *mutable { "" } else { "const " };
-                let ty = declared_type.as_deref().map(cpp_type).map(str::to_string).unwrap_or_else(|| "auto".to_string());
+                let ty = declared_type.as_deref().map(cpp_type).unwrap_or_else(|| "auto".to_string());
                 writeln!(cpp, "{pad}{qualifier}{ty} {name} = {};", cpp_expr(value)).unwrap();
             }
             Stmt::Assign { name, value } => { writeln!(cpp, "{pad}{name} = {};", cpp_expr(value)).unwrap(); }
@@ -503,16 +509,19 @@ fn emit_statements(statements: &[Stmt], cpp: &mut String, indent: usize) {
     }
 }
 
-fn cpp_type(ty: &str) -> &'static str {
+fn cpp_type(ty: &str) -> String {
     match ty {
-        "i32" => "std::int32_t",
-        "i64" => "std::int64_t",
-        "u32" => "std::uint32_t",
-        "u64" => "std::uint64_t",
-        "f32" => "float",
-        "f64" => "double",
-        "bool" => "bool",
-        "String" => "std::string",
+        "i32" => "std::int32_t".into(),
+        "i64" => "std::int64_t".into(),
+        "u32" => "std::uint32_t".into(),
+        "u64" => "std::uint64_t".into(),
+        "f32" => "float".into(),
+        "f64" => "double".into(),
+        "bool" => "bool".into(),
+        "String" => "std::string".into(),
+        array if array.starts_with("Array<") && array.ends_with('>') => {
+            format!("std::vector<{}>", cpp_type(&array[6..array.len() - 1]))
+        }
         _ => unreachable!("parser validates types"),
     }
 }
@@ -1094,6 +1103,20 @@ mod tests {
     fn rejects_unknown_variables_and_invalid_conditions() {
         assert!(compile_to_cpp("fn main() { print(missing) }").unwrap_err().contains("unknown variable"));
         assert!(compile_to_cpp("fn main() { if 1 { print(2) } }").unwrap_err().contains("if condition must be bool"));
+    }
+
+    #[test]
+    fn passes_arrays_to_typed_functions() {
+        let cpp = compile_to_cpp(r#"fn main() {
+            let values: Array<i64> = [3, 7, 9]
+            print(first(values))
+        }
+        fn first(values: Array<i64>) -> i64 {
+            return values[0]
+        }"#).unwrap();
+        assert!(cpp.contains("std::vector<std::int64_t> values"));
+        assert!(cpp.contains("std::int64_t first(std::vector<std::int64_t> values);"));
+        assert!(cpp.contains("first(values)"));
     }
 
     #[test]
