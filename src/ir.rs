@@ -240,6 +240,7 @@ fn cpp_expr(expr: &IrExpression) -> String {
                 "first" => format!("cinder_first({})", values[0]),
                 "last" => format!("cinder_last({})", values[0]),
                 "pop" => format!("cinder_pop({})", values[0]),
+                "remove_at" => format!("cinder_remove_at({}, {})", values[0], values[1]),
                 "abs" => format!("std::abs({})", values[0]),
                 "min" => format!("std::min({}, {})", values[0], values[1]),
                 "max" => format!("std::max({}, {})", values[0], values[1]),
@@ -377,6 +378,16 @@ inline T cinder_pop(std::vector<T>& value) {
     if (value.empty()) throw std::out_of_range("pop: array is empty");
     T result = value.back();
     value.pop_back();
+    return result;
+}
+template <typename T>
+inline T cinder_remove_at(std::vector<T>& value, long long index) {
+    if (index < 0 || static_cast<std::size_t>(index) >= value.size()) {
+        throw std::out_of_range("remove_at: index out of range");
+    }
+    auto position = value.begin() + index;
+    T result = *position;
+    value.erase(position);
     return result;
 }
 inline std::string cinder_input(const std::string& prompt = {}) {

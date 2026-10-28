@@ -5,6 +5,7 @@ fn main() {
     print(values[0])
     print(values[1])
     print(contains(values, 20))
+    print(remove_at(values, 2))
     print(pop(values))
     print(len(values))
 }
