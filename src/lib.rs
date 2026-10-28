@@ -60,7 +60,38 @@ fn lex(source: &str) -> Result<Vec<Token>, String> {
             '|' if chars.get(i + 1) == Some(&'|') => { i += 2; Kind::OrOr }
             '|' => { i += 1; Kind::Pipe }
             '/' => { i += 1; Kind::Slash }
-            '
+            '$' if chars.get(i + 1) == Some(&'"') => {
+                i += 1;
+                let triple = chars.get(i..i + 3).is_some_and(|slice| slice == ['"', '"', '"']);
+                i += if triple { 3 } else { 1 };
+                let mut value = String::new();
+                let mut closed = false;
+                while i < chars.len() {
+                    if triple && chars.get(i..i + 3).is_some_and(|slice| slice == ['"', '"', '"']) {
+                        i += 3; closed = true; break;
+                    }
+                    if !triple && chars[i] == '"' {
+                        i += 1; closed = true; break;
+                    }
+                    match chars[i] {
+                        '\\' => {
+                            i += 1;
+                            let escaped = *chars.get(i).ok_or_else(|| format!("line {line}: unfinished escape"))?;
+                            value.push(match escaped {
+                                'n' => '\n', 'r' => '\r', 't' => '\t', '"' => '"', '\\' => '\\',
+                                other => return Err(format!("line {line}: unsupported escape \\{other}")),
+                            });
+                            i += 1;
+                        }
+                        '\n' if !triple => return Err(format!("line {start_line}: newline inside interpolated string; use triple quotes for multiline strings")),
+                        '\n' => { value.push('\n'); i += 1; line += 1; }
+                        ch => { value.push(ch); i += 1; }
+                    }
+                }
+                if !closed { return Err(format!("line {start_line}: unterminated interpolated string literal")); }
+                Kind::InterpolatedString(value)
+            }
+            'r' if chars.get(i + 1) == Some(&'"') => {
                 // Raw strings use r"..." or r"""...""". Backslashes are always literal.
                 i += 1;
                 let triple = chars.get(i..i + 3).is_some_and(|slice| slice == ['"', '"', '"']);
