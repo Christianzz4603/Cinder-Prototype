@@ -1527,7 +1527,7 @@ fn main() {
         assert!(cpp.contains("convert(std::int64_t value)"));
         assert!(cpp.contains("convert(std::string value)"));
         assert!(cpp.contains("convert(4)"));
-        assert!(cpp.contains("convert(std::string(\\\"cinder\\\"))"));
+        assert!(cpp.contains("convert(std::string(\"cinder\"))"));
         assert!(crate::compile_to_cpp("fn same(value: i64) -> i64 { return value }\nfn same(value: i64) -> i64 { return value }\nfn main() {}").unwrap_err().contains("duplicate function signature"));
     }
 
