@@ -474,7 +474,7 @@ fn cpp_expr(expr: &Expr) -> String {
     match expr {
         Expr::Text(s) => format!("std::string({})", cpp_string(s)),
         Expr::Array(items) => format!("std::vector{{{}}}", items.iter().map(cpp_expr).collect::<Vec<_>>().join(", ")),
-        Expr::Index { value, index } => format!("{}[{}]", cpp_expr(value), cpp_expr(index)),
+        Expr::Index { value, index } => format!("{}.at({})", cpp_expr(value), cpp_expr(index)),
         Expr::Number(n) => cpp_number(n),
         Expr::Bool(b) => b.to_string(),
         Expr::Name(n) => n.clone(),
@@ -531,7 +531,7 @@ fn emit_statements(statements: &[Stmt], cpp: &mut String, indent: usize) {
                 writeln!(cpp, "{pad}{qualifier}{ty} {name} = {};", cpp_expr(value)).unwrap();
             }
             Stmt::Assign { name, value } => { writeln!(cpp, "{pad}{name} = {};", cpp_expr(value)).unwrap(); }
-            Stmt::IndexAssign { name, index, value } => { writeln!(cpp, "{pad}{name}[{}] = {};", cpp_expr(index), cpp_expr(value)).unwrap(); }
+            Stmt::IndexAssign { name, index, value } => { writeln!(cpp, "{pad}{name}.at({}) = {};", cpp_expr(index), cpp_expr(value)).unwrap(); }
             Stmt::Push { name, value } => { writeln!(cpp, "{pad}{name}.push_back({});", cpp_expr(value)).unwrap(); }
             Stmt::Print(value) => { writeln!(cpp, "{pad}std::cout << {} << '\\n';", cpp_expr(value)).unwrap(); }
             Stmt::Return(value) => { writeln!(cpp, "{pad}return {};", cpp_expr(value)).unwrap(); }
@@ -1070,7 +1070,7 @@ mod tests {
             print(len(values))
         }"#).unwrap();
         assert!(cpp.contains("std::vector{10, 20, 30}"));
-        assert!(cpp.contains("values[1]"));
+        assert!(cpp.contains("values.at(1)"));
         assert!(cpp.contains("cinder_len(values)"));
     }
 
@@ -1100,8 +1100,8 @@ mod tests {
             values[0] = 9
             print(values[0])
         }"#).unwrap();
-        assert!(cpp.contains("values[0] = 9;"));
-        assert!(cpp.contains("values[0]"));
+        assert!(cpp.contains("values.at(0) = 9;"));
+        assert!(cpp.contains("values.at(0)"));
     }
 
     #[test]
