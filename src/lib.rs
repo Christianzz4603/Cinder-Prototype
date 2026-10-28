@@ -77,10 +77,29 @@ fn lex(source: &str) -> Result<Vec<Token>, String> {
             }
             c if c.is_ascii_digit() => {
                 let start = i;
-                while i < chars.len() && chars[i].is_ascii_digit() { i += 1; }
-                if chars.get(i) == Some(&'.') && chars.get(i + 1).is_some_and(|ch| ch.is_ascii_digit()) {
-                    i += 1;
+                if chars[i] == '0' && chars.get(i + 1).is_some_and(|ch| matches!(ch, 'x' | 'X' | 'b' | 'B' | 'o' | 'O')) {
+                    let marker = chars[i + 1].to_ascii_lowercase();
+                    i += 2;
+                    let digits_start = i;
+                    while i < chars.len() {
+                        let valid = match marker {
+                            'x' => chars[i].is_ascii_hexdigit(),
+                            'b' => matches!(chars[i], '0' | '1'),
+                            'o' => matches!(chars[i], '0'..='7'),
+                            _ => false,
+                        };
+                        if valid { i += 1; } else { break; }
+                    }
+                    if i == digits_start { return Err(format!("line {line}: base-prefixed integer has no valid digits")); }
+                    if chars.get(i).is_some_and(|ch| ch.is_ascii_alphanumeric() || *ch == '_') {
+                        return Err(format!("line {line}: invalid digit in base-prefixed integer"));
+                    }
+                } else {
                     while i < chars.len() && chars[i].is_ascii_digit() { i += 1; }
+                    if chars.get(i) == Some(&'.') && chars.get(i + 1).is_some_and(|ch| ch.is_ascii_digit()) {
+                        i += 1;
+                        while i < chars.len() && chars[i].is_ascii_digit() { i += 1; }
+                    }
                 }
                 Kind::Number(chars[start..i].iter().collect())
             }
@@ -426,12 +445,26 @@ fn cpp_string(value: &str) -> String {
     out
 }
 
+fn cpp_number(number: &str) -> String {
+    if let Some(digits) = number.strip_prefix("0o").or_else(|| number.strip_prefix("0O")) {
+        return format!("0{digits}");
+    }
+    if number.starts_with("0x") || number.starts_with("0X") || number.starts_with("0b") || number.starts_with("0B") {
+        return number.to_string();
+    }
+    if number.chars().all(|ch| ch.is_ascii_digit()) && number.len() > 1 && number.starts_with('0') {
+        let normalized = number.trim_start_matches('0');
+        return if normalized.is_empty() { "0".to_string() } else { normalized.to_string() };
+    }
+    number.to_string()
+}
+
 fn cpp_expr(expr: &Expr) -> String {
     match expr {
         Expr::Text(s) => format!("std::string({})", cpp_string(s)),
         Expr::Array(items) => format!("std::vector{{{}}}", items.iter().map(cpp_expr).collect::<Vec<_>>().join(", ")),
         Expr::Index { value, index } => format!("{}[{}]", cpp_expr(value), cpp_expr(index)),
-        Expr::Number(n) => n.clone(),
+        Expr::Number(n) => cpp_number(n),
         Expr::Bool(b) => b.to_string(),
         Expr::Name(n) => n.clone(),
         Expr::Call { name, args } => {
@@ -980,6 +1013,15 @@ mod tests {
         assert!(cpp.contains("while ((i <= 5))"));
         assert!(cpp.contains("total = (total + i);"));
         assert!(cpp.contains("i = (i + 1);"));
+    }
+
+    #[test]
+    fn supports_hex_binary_and_octal_integer_literals() {
+        let cpp = compile_to_cpp("fn main() { print(0xFF)\n print(0b1010)\n print(0o77) }").unwrap();
+        assert!(cpp.contains("std::cout << 0xFF"));
+        assert!(cpp.contains("std::cout << 0b1010"));
+        assert!(cpp.contains("std::cout << 077"));
+        assert!(compile_to_cpp("fn main() { print(0b102) }").is_err());
     }
 
     #[test]
