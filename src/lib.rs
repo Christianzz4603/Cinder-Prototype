@@ -1399,7 +1399,7 @@ mod tests {
         }"#).unwrap();
         assert!(cpp.contains("while ((i <= 5))"));
         assert!(cpp.contains("total = cinder_add(total, i);"));
-        assert!(cpp.contains("i = (i + 1);"));
+        assert!(cpp.contains("i = cinder_add(i, 1);"));
     }
 
     #[test]
