@@ -1486,6 +1486,7 @@ mod ir_tests {
             print(is_empty(filled_values))
         }"#).unwrap();
         assert!(cpp.contains("(empty_text).empty()"));
+        assert!(cpp.contains("std::vector<std::int64_t> empty_values = std::vector<std::int64_t>{};"));
         assert!(cpp.contains("(filled_values).empty()"));
         assert!(crate::compile_to_cpp("fn main() { print(is_empty(42)) }").is_err());
     }

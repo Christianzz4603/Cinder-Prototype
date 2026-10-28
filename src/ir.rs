@@ -251,7 +251,12 @@ fn emit_statements(statements: &[IrStatement], cpp: &mut String, indent: usize) 
             IrStatement::Let { name, ty, mutable, value } => {
                 let qualifier = if *mutable { "" } else { "const " };
                 let declared = ty.as_deref().map(cpp_type).unwrap_or_else(|| "auto".to_string());
-                writeln!(cpp, "{pad}{qualifier}{declared} {name} = {};", cpp_expr(value)).unwrap();
+                let initializer = match (ty.as_deref(), value) {
+                    (Some(ty), IrExpression::Array(items)) if items.is_empty() =>
+                        format!("{}{{}}", cpp_type(ty)),
+                    _ => cpp_expr(value),
+                };
+                writeln!(cpp, "{pad}{qualifier}{declared} {name} = {initializer};").unwrap();
             }
             IrStatement::Assign { name, value } => { writeln!(cpp, "{pad}{name} = {};", cpp_expr(value)).unwrap(); }
             IrStatement::IndexAssign { name, index, value } => { writeln!(cpp, "{pad}{name}.at({}) = {};", cpp_expr(index), cpp_expr(value)).unwrap(); }
