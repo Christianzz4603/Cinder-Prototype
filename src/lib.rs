@@ -1411,7 +1411,7 @@ mod tests {
 second line""")
             print(r"C:\users\cinder")
             print(r"""raw
-            multiline \n text""")
+multiline \n text""")
         }"#).unwrap();
         assert!(cpp.contains("first line\\nsecond line"));
         assert!(cpp.contains("C:\\\\users\\\\cinder"));
