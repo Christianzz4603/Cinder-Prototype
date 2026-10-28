@@ -1,0 +1,5 @@
+fn main() {
+    let values = [10, 20, 30]
+    print(values[1])
+    print(len(values))
+}

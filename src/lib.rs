@@ -5,7 +5,7 @@ enum Kind {
     Ident(String),
     String(String),
     Number(String),
-    LParen, RParen, LBrace, RBrace, Colon, Comma, Equal, Arrow,
+    LParen, RParen, LBrace, RBrace, LBracket, RBracket, Colon, Comma, Equal, Arrow,
     Plus, Minus, Star, Slash, Percent, Bang,
     Less, LessEqual, Greater, GreaterEqual, EqualEqual, BangEqual, DotDot,
     AndAnd, OrOr, Newline, Eof,
@@ -31,6 +31,8 @@ fn lex(source: &str) -> Result<Vec<Token>, String> {
             ')' => { i += 1; Kind::RParen }
             '{' => { i += 1; Kind::LBrace }
             '}' => { i += 1; Kind::RBrace }
+            '[' => { i += 1; Kind::LBracket }
+            ']' => { i += 1; Kind::RBracket }
             ':' => { i += 1; Kind::Colon }
             '.' if chars.get(i + 1) == Some(&'.') => { i += 2; Kind::DotDot }
             ',' => { i += 1; Kind::Comma }
@@ -101,6 +103,8 @@ enum Expr {
     Bool(bool),
     Name(String),
     Call { name: String, args: Vec<Expr> },
+    Array(Vec<Expr>),
+    Index { value: Box<Expr>, index: Box<Expr> },
     Unary { op: Kind, value: Box<Expr> },
     Binary { left: Box<Expr>, op: BinaryOp, right: Box<Expr> },
 }
@@ -143,6 +147,17 @@ impl Parser {
         let token = self.advance();
         match token.kind {
             Kind::String(s) => Ok(Expr::Text(s)),
+            Kind::LBracket => {
+                let mut items = Vec::new();
+                if !matches!(&self.current().kind, Kind::RBracket) {
+                    loop {
+                        items.push(self.expression()?);
+                        if matches!(&self.current().kind, Kind::Comma) { self.advance(); } else { break; }
+                    }
+                }
+                self.expect(Kind::RBracket, "']' after array elements")?;
+                Ok(Expr::Array(items))
+            }
             Kind::Number(n) => Ok(Expr::Number(n)),
             Kind::Ident(s) if s == "true" => Ok(Expr::Bool(true)),
             Kind::Ident(s) if s == "false" => Ok(Expr::Bool(false)),
@@ -185,13 +200,23 @@ impl Parser {
             _ => Err(format!("line {}: expected an expression", token.line)),
         }
     }
+    fn postfix(&mut self) -> Result<Expr, String> {
+        let mut value = self.primary()?;
+        while matches!(&self.current().kind, Kind::LBracket) {
+            self.advance();
+            let index = self.expression()?;
+            self.expect(Kind::RBracket, "']' after array index")?;
+            value = Expr::Index { value: Box::new(value), index: Box::new(index) };
+        }
+        Ok(value)
+    }
     fn unary(&mut self) -> Result<Expr, String> {
         if matches!(&self.current().kind, Kind::Minus | Kind::Bang) {
             let op = self.advance().kind;
             let value = self.unary()?;
             Ok(Expr::Unary { op, value: Box::new(value) })
         } else {
-            self.primary()
+            self.postfix()
         }
     }
     fn precedence(kind: &Kind) -> Option<(u8, BinaryOp)> {
@@ -363,6 +388,8 @@ fn cpp_string(value: &str) -> String {
 fn cpp_expr(expr: &Expr) -> String {
     match expr {
         Expr::Text(s) => format!("std::string({})", cpp_string(s)),
+        Expr::Array(items) => format!("std::vector{{{}}}", items.iter().map(cpp_expr).collect::<Vec<_>>().join(", ")),
+        Expr::Index { value, index } => format!("{}[{}]", cpp_expr(value), cpp_expr(index)),
         Expr::Number(n) => n.clone(),
         Expr::Bool(b) => b.to_string(),
         Expr::Name(n) => n.clone(),
@@ -492,6 +519,22 @@ fn infer_expr_type(
 ) -> Result<String, String> {
     match expr {
         Expr::Text(_) => Ok("String".into()),
+        Expr::Array(items) => {
+            if items.is_empty() { return Err("cannot infer the element type of an empty array; add at least one element".into()); }
+            let first = infer_expr_type(&items[0], scopes, signatures)?;
+            for item in &items[1..] {
+                let item_ty = infer_expr_type(item, scopes, signatures)?;
+                if item_ty != first { return Err(format!("array elements must have matching types, got {first} and {item_ty}")); }
+            }
+            Ok(format!("Array<{first}>"))
+        }
+        Expr::Index { value, index } => {
+            let array_ty = infer_expr_type(value, scopes, signatures)?;
+            let index_ty = infer_expr_type(index, scopes, signatures)?;
+            if !is_integer(&index_ty) { return Err(format!("array index must be an integer, got {index_ty}")); }
+            array_ty.strip_prefix("Array<").and_then(|ty| ty.strip_suffix('>')).map(str::to_string)
+                .ok_or_else(|| format!("cannot index value of type {array_ty}"))
+        }
         Expr::Number(_) => Ok("i64".into()),
         Expr::Bool(_) => Ok("bool".into()),
         Expr::Name(name) => lookup_variable(scopes, name).map(|item| item.0)
@@ -542,7 +585,7 @@ fn infer_expr_type(
                     if arg_types.first().is_some_and(|ty| ty != "String") { return bad("expects an optional String prompt".to_string()); }
                     Ok("String".into())
                 }
-                "len" => { if arg_types[0] != "String" { return bad(format!("expects String, got {}", arg_types[0])); } Ok("i64".into()) }
+                "len" => { if arg_types[0] != "String" && !arg_types[0].starts_with("Array<") { return bad(format!("expects String or Array, got {}", arg_types[0])); } Ok("i64".into()) }
                 "contains" | "starts_with" | "ends_with" => {
                     if arg_types.iter().any(|ty| ty != "String") { return bad("expects two String arguments".to_string()); }
                     Ok("bool".into())
@@ -685,17 +728,14 @@ fn validate_expr_calls(expr: &Expr, signatures: &std::collections::HashMap<Strin
             let builtin = matches!(name.as_str(), "input" | "len" | "abs" | "sqrt" | "floor" | "ceil" | "round" | "to_string" | "parse_int" | "is_even" | "is_odd" | "sign" | "min" | "max" | "pow" | "contains" | "starts_with" | "ends_with" | "clamp");
             if !builtin {
                 let expected = signatures.get(name).ok_or_else(|| format!("unknown function '{name}'"))?;
-                if args.len() != *expected {
-                    return Err(format!("function '{name}' expects {expected} argument(s), got {}", args.len()));
-                }
+                if args.len() != *expected { return Err(format!("function '{name}' expects {expected} argument(s), got {}", args.len())); }
             }
             for arg in args { validate_expr_calls(arg, signatures)?; }
         }
         Expr::Unary { value, .. } => validate_expr_calls(value, signatures)?,
-        Expr::Binary { left, right, .. } => {
-            validate_expr_calls(left, signatures)?;
-            validate_expr_calls(right, signatures)?;
-        }
+        Expr::Array(items) => { for item in items { validate_expr_calls(item, signatures)?; } }
+        Expr::Index { value, index } => { validate_expr_calls(value, signatures)?; validate_expr_calls(index, signatures)?; }
+        Expr::Binary { left, right, .. } => { validate_expr_calls(left, signatures)?; validate_expr_calls(right, signatures)?; }
         Expr::Text(_) | Expr::Number(_) | Expr::Bool(_) | Expr::Name(_) => {}
     }
     Ok(())
@@ -740,10 +780,15 @@ pub fn compile_to_cpp(source: &str) -> Result<String, String> {
         validate_function_calls(&function.body, &signatures, 0)?;
     }
     let mut cpp = String::from(
-        "#include <algorithm>\n#include <cmath>\n#include <cstdint>\n#include <iostream>\n#include <stdexcept>\n#include <string>\n#include <type_traits>\n\n"
+        "#include <algorithm>\n#include <cmath>\n#include <cstdint>\n#include <iostream>\n#include <stdexcept>\n#include <string>\n#include <type_traits>\n#include <vector>\n\n"
     );
     cpp.push_str(r#"
 inline long long cinder_len(const std::string& value) {
+    return static_cast<long long>(value.size());
+}
+
+template <typename T>
+inline long long cinder_len(const std::vector<T>& value) {
     return static_cast<long long>(value.size());
 }
 
@@ -835,6 +880,29 @@ mod tests {
         assert!(cpp.contains("while ((i <= 5))"));
         assert!(cpp.contains("total = (total + i);"));
         assert!(cpp.contains("i = (i + 1);"));
+    }
+
+    #[test]
+    fn compiles_arrays_and_indexing() {
+        let cpp = compile_to_cpp(r#"fn main() {
+            let values = [10, 20, 30]
+            print(values[1])
+            print(len(values))
+        }"#).unwrap();
+        assert!(cpp.contains("std::vector{10, 20, 30}"));
+        assert!(cpp.contains("values[1]"));
+        assert!(cpp.contains("cinder_len(values)"));
+    }
+
+    #[test]
+    fn rejects_invalid_array_element_types_and_indices() {
+        assert!(compile_to_cpp(r#"fn main() {
+            let values = [1, "x"]
+        }"#).unwrap_err().contains("array elements must have matching types"));
+        assert!(compile_to_cpp(r#"fn main() {
+            let values = [1, 2]
+            print(values[true])
+        }"#).unwrap_err().contains("array index must be an integer"));
     }
 
     #[test]
