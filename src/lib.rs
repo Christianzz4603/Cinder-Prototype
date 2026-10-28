@@ -147,7 +147,7 @@ impl Parser {
             self.skip_newlines();
             if matches!(&self.current().kind, Kind::RBrace) { self.advance(); break; }
             if matches!(&self.current().kind, Kind::Eof) {
-                return Err(format!("line {}: expected '}' to close main", self.current().line));
+                return Err(format!("line {}: expected '}}' to close main", self.current().line));
             }
             statements.push(self.statement()?);
         }
