@@ -482,7 +482,7 @@ impl Parser {
                     if arms.iter().any(|arm: &MatchArm| arm.pattern == pattern) {
                         return Err(format!("line {}: duplicate match pattern", self.current().line));
                     }
-                    if arms.iter().any(|arm| matches!(arm.pattern, Pattern::Wildcard)) {
+                    if arms.iter().any(|arm| matches!(&arm.pattern, Pattern::Wildcard)) {
                         return Err(format!("line {}: wildcard match arm must be last", self.current().line));
                     }
                     self.expect(Kind::FatArrow, "'=>' after match pattern")?;
@@ -756,7 +756,7 @@ fn emit_statements(statements: &[Stmt], cpp: &mut String, indent: usize) {
                         Pattern::Bool(value) => value.to_string(),
                         Pattern::Wildcard => String::new(),
                     };
-                    if matches!(arm.pattern, Pattern::Wildcard) {
+                    if matches!(&arm.pattern, Pattern::Wildcard) {
                         if started { writeln!(cpp, "{pad}}} else {{").unwrap(); }
                         emit_statements(&arm.body, cpp, if started { indent + 2 } else { indent + 1 });
                     } else if !started {
@@ -1145,9 +1145,9 @@ fn check_statements(
 }
 
 fn match_is_exhaustive(arms: &[MatchArm]) -> bool {
-    arms.iter().any(|arm| matches!(arm.pattern, Pattern::Wildcard))
-        || (arms.iter().any(|arm| matches!(arm.pattern, Pattern::Bool(true)))
-            && arms.iter().any(|arm| matches!(arm.pattern, Pattern::Bool(false))))
+    arms.iter().any(|arm| matches!(&arm.pattern, Pattern::Wildcard))
+        || (arms.iter().any(|arm| matches!(&arm.pattern, Pattern::Bool(true)))
+            && arms.iter().any(|arm| matches!(&arm.pattern, Pattern::Bool(false))))
 }
 
 fn block_definitely_returns(statements: &[Stmt]) -> bool {

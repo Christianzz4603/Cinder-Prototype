@@ -325,7 +325,7 @@ fn emit_statements(statements: &[IrStatement], cpp: &mut String, indent: usize) 
                         IrPattern::Bool(value) => value.to_string(),
                         IrPattern::Wildcard => String::new(),
                     };
-                    if matches!(arm.pattern, IrPattern::Wildcard) {
+                    if matches!(&arm.pattern, IrPattern::Wildcard) {
                         if started { writeln!(cpp, "{inner_pad}}} else {{").unwrap(); }
                         emit_statements(&arm.body, cpp, if started { indent + 2 } else { indent + 1 });
                     } else if !started {
