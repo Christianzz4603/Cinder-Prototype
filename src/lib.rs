@@ -110,7 +110,7 @@ enum Expr {
 }
 
 #[derive(Debug)]
-enum Stmt { Let { name: String, declared_type: Option<String>, mutable: bool, value: Expr }, Assign { name: String, value: Expr }, Push { name: String, value: Expr }, Print(Expr), Return(Expr), Break, Continue, If { condition: Expr, then_branch: Vec<Stmt>, else_branch: Option<Vec<Stmt>> }, While { condition: Expr, body: Vec<Stmt> }, ForRange { name: String, start: Expr, end: Expr, body: Vec<Stmt> } }
+enum Stmt { Let { name: String, declared_type: Option<String>, mutable: bool, value: Expr }, Assign { name: String, value: Expr }, IndexAssign { name: String, index: Expr, value: Expr }, Push { name: String, value: Expr }, Print(Expr), Return(Expr), Break, Continue, If { condition: Expr, then_branch: Vec<Stmt>, else_branch: Option<Vec<Stmt>> }, While { condition: Expr, body: Vec<Stmt> }, ForRange { name: String, start: Expr, end: Expr, body: Vec<Stmt> } }
 
 #[derive(Debug)]
 struct Function { name: String, params: Vec<(String, String)>, return_type: String, body: Vec<Stmt> }
@@ -287,6 +287,16 @@ impl Parser {
             Kind::Ident(word) if word == "return" => { self.advance(); Ok(Stmt::Return(self.expression()?)) }
             Kind::Ident(word) if word == "break" => { self.advance(); Ok(Stmt::Break) }
             Kind::Ident(word) if word == "continue" => { self.advance(); Ok(Stmt::Continue) }
+            Kind::Ident(name) if matches!(self.tokens.get(self.at + 1).map(|token| &token.kind), Some(Kind::LBracket)) => {
+                let name = name.clone();
+                self.advance();
+                self.expect(Kind::LBracket, "'[' after array name")?;
+                let index = self.expression()?;
+                self.expect(Kind::RBracket, "']' after array index")?;
+                self.expect(Kind::Equal, "'=' in indexed assignment")?;
+                let value = self.expression()?;
+                Ok(Stmt::IndexAssign { name, index, value })
+            }
             Kind::Ident(name) if matches!(self.tokens.get(self.at + 1).map(|token| &token.kind), Some(Kind::Equal)) => {
                 let name = name.clone();
                 self.advance();
@@ -454,6 +464,17 @@ fn emit_statements(statements: &[Stmt], cpp: &mut String, indent: usize) {
                 writeln!(cpp, "{pad}{qualifier}{ty} {name} = {};", cpp_expr(value)).unwrap();
             }
             Stmt::Assign { name, value } => { writeln!(cpp, "{pad}{name} = {};", cpp_expr(value)).unwrap(); }
+            Stmt::IndexAssign { name, index, value } => {
+                let (array_ty, mutable) = lookup_variable(scopes, name).ok_or_else(|| format!("cannot index-assign unknown variable '{name}'"))?;
+                if !mutable { return Err(format!("cannot modify elements of immutable array '{name}'; declare it with 'var'")); }
+                let element_ty = array_ty.strip_prefix("Array<").and_then(|ty| ty.strip_suffix(">"))
+                    .ok_or_else(|| format!("indexed assignment requires an Array, got {array_ty}"))?;
+                let index_ty = infer_expr_type(index, scopes, signatures)?;
+                if !is_integer(&index_ty) { return Err(format!("array index must be an integer, got {index_ty}")); }
+                let value_ty = infer_expr_type(value, scopes, signatures)?;
+                if element_ty != value_ty { return Err(format!("array element type is {element_ty}, but assigned value has type {value_ty}")); }
+            }
+            Stmt::IndexAssign { name, index, value } => { writeln!(cpp, "{pad}{name}[{}] = {};", cpp_expr(index), cpp_expr(value)).unwrap(); }
             Stmt::Push { name, value } => { writeln!(cpp, "{pad}{name}.push_back({});", cpp_expr(value)).unwrap(); }
             Stmt::Print(value) => { writeln!(cpp, "{pad}std::cout << {} << '\\n';", cpp_expr(value)).unwrap(); }
             Stmt::Return(value) => { writeln!(cpp, "{pad}return {};", cpp_expr(value)).unwrap(); }
@@ -763,6 +784,7 @@ fn validate_function_calls(statements: &[Stmt], signatures: &std::collections::H
     for stmt in statements {
         match stmt {
             Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Print(value) | Stmt::Return(value) => validate_expr_calls(value, signatures)?,
+            Stmt::IndexAssign { index, value, .. } => { validate_expr_calls(index, signatures)?; validate_expr_calls(value, signatures)?; }
             Stmt::Push { value, .. } => validate_expr_calls(value, signatures)?,
             Stmt::Break if loop_depth == 0 => return Err("break used outside a loop".to_string()),
             Stmt::Continue if loop_depth == 0 => return Err("continue used outside a loop".to_string()),
@@ -911,6 +933,29 @@ mod tests {
         assert!(cpp.contains("std::vector{10, 20, 30}"));
         assert!(cpp.contains("values[1]"));
         assert!(cpp.contains("cinder_len(values)"));
+    }
+
+    #[test]
+    fn assigns_array_elements() {
+        let cpp = compile_to_cpp(r#"fn main() {
+            var values = [1, 2]
+            values[0] = 9
+            print(values[0])
+        }"#).unwrap();
+        assert!(cpp.contains("values[0] = 9;"));
+        assert!(cpp.contains("values[0]"));
+    }
+
+    #[test]
+    fn rejects_index_assignment_to_immutable_or_wrongly_typed_arrays() {
+        assert!(compile_to_cpp(r#"fn main() {
+            let values = [1, 2]
+            values[0] = 9
+        }"#).unwrap_err().contains("immutable array"));
+        assert!(compile_to_cpp(r#"fn main() {
+            var values = [1, 2]
+            values[0] = "x"
+        }"#).unwrap_err().contains("assigned value has type"));
     }
 
     #[test]

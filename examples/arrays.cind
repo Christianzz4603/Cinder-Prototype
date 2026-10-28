@@ -1,6 +1,8 @@
 fn main() {
     var values = [10, 20, 30]
+    values[0] = 5
     push(values, 40)
+    print(values[0])
     print(values[1])
     print(len(values))
 }
