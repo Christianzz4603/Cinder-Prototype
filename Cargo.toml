@@ -12,3 +12,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "cinder"
 path = "src/main.rs"
+
+[[bin]]
+name = "cinderun"
+path = "src/cinderun.rs"
