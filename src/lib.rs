@@ -1387,9 +1387,9 @@ mod tests {
     #[test]
     fn supports_bitwise_and_shift_operators() {
         let cpp = compile_to_cpp("fn main() { print(5 & 3)\n print(5 | 2)\n print(5 ^ 1)\n print(1 << 4)\n print(16 >> 2)\n print(~0) }").unwrap();
-        assert!(cpp.contains("std::cout << 1;"));
-        assert!(cpp.contains("std::cout << 16;"));
-        assert!(cpp.contains("std::cout << -1;"));
+        assert!(cpp.contains("std::cout << 1 <<"));
+        assert!(cpp.contains("std::cout << 16 <<"));
+        assert!(cpp.contains("std::cout << -1 <<"));
         assert!(compile_to_cpp("fn main() { print(1.5 & 1) }").is_err());
     }
 
