@@ -342,7 +342,7 @@ fn emit_statements(statements: &[Stmt], cpp: &mut String, indent: usize) {
     for stmt in statements {
         match stmt {
             Stmt::Let { name, value } => { writeln!(cpp, "{pad}auto {name} = {};", cpp_expr(value)).unwrap(); }
-            Stmt::Print(value) => { writeln!(cpp, "{pad}std::cout << {} << '\n';", cpp_expr(value)).unwrap(); }
+            Stmt::Print(value) => { writeln!(cpp, "{pad}std::cout << {} << '\\n';", cpp_expr(value)).unwrap(); }
             Stmt::Return(value) => { writeln!(cpp, "{pad}return {};", cpp_expr(value)).unwrap(); }
             Stmt::If { condition, then_branch, else_branch } => {
                 writeln!(cpp, "{pad}if ({}) {{", cpp_expr(condition)).unwrap();
