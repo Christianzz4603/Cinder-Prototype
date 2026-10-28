@@ -1212,7 +1212,7 @@ fn type_check_program(functions: &[Function]) -> Result<(), String> {
 fn validate_expr_calls(expr: &Expr, signatures: &std::collections::HashMap<String, Vec<usize>>) -> Result<(), String> {
     match expr {
         Expr::Call { name, args } => {
-            let builtin = matches!(name.as_str(), "input" | "len" | "is_empty" | "capacity" | "first" | "last" | "pop" | "remove_at" | "abs | "sqrt" | "floor" | "ceil" | "round" | "to_string" | "parse_int" | "is_even" | "is_odd" | "sign" | "min" | "max" | "pow" | "contains" | "starts_with" | "ends_with" | "clamp");
+            let builtin = matches!(name.as_str(), "input" | "len" | "is_empty" | "capacity" | "first" | "last" | "pop" | "remove_at" | "abs" | "sqrt" | "floor" | "ceil" | "round" | "to_string" | "parse_int" | "is_even" | "is_odd" | "sign" | "min" | "max" | "pow" | "contains" | "starts_with" | "ends_with" | "clamp");
             if !builtin {
                 let expected = signatures.get(name).ok_or_else(|| format!("unknown function '{name}'"))?;
                 if !expected.contains(&args.len()) {
