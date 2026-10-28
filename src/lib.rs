@@ -1475,7 +1475,8 @@ mod ir_tests {
         let cpp = crate::compile_to_cpp(r#"fn main() {
             let empty_text = ""
             let filled_text = "cinder"
-            let empty_values: Array<i64> = []
+            var empty_values = [0]
+            print(pop(empty_values))
             let filled_values = [1, 2, 3]
             print(is_empty(empty_text))
             print(is_empty(filled_text))
