@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "The experimental Cinder native programming language compiler"
 license = "MIT"
+default-run = "cinder"
 
 [lib]
 name = "cinder"
