@@ -78,6 +78,10 @@ fn lex(source: &str) -> Result<Vec<Token>, String> {
             c if c.is_ascii_digit() => {
                 let start = i;
                 while i < chars.len() && chars[i].is_ascii_digit() { i += 1; }
+                if chars.get(i) == Some(&'.') && chars.get(i + 1).is_some_and(|ch| ch.is_ascii_digit()) {
+                    i += 1;
+                    while i < chars.len() && chars[i].is_ascii_digit() { i += 1; }
+                }
                 Kind::Number(chars[start..i].iter().collect())
             }
             c if c.is_ascii_alphabetic() || c == '_' => {
@@ -576,7 +580,7 @@ fn infer_expr_type(
             array_ty.strip_prefix("Array<").and_then(|ty| ty.strip_suffix('>')).map(str::to_string)
                 .ok_or_else(|| format!("cannot index value of type {array_ty}"))
         }
-        Expr::Number(_) => Ok("i64".into()),
+        Expr::Number(number) => Ok(if number.contains('.') { "f64".into() } else { "i64".into() }),
         Expr::Bool(_) => Ok("bool".into()),
         Expr::Name(name) => lookup_variable(scopes, name).map(|item| item.0)
             .ok_or_else(|| format!("unknown variable '{name}'")),
@@ -969,6 +973,18 @@ mod tests {
         assert!(cpp.contains("while ((i <= 5))"));
         assert!(cpp.contains("total = (total + i);"));
         assert!(cpp.contains("i = (i + 1);"));
+    }
+
+    #[test]
+    fn supports_floating_point_literals_and_arithmetic() {
+        let cpp = compile_to_cpp(r#"fn main() {
+            let ratio: f64 = 3.5
+            print(ratio * 2.0)
+            print(1.25 + 2.75)
+        }"#).unwrap();
+        assert!(cpp.contains("3.5"));
+        assert!(cpp.contains("(ratio * 2.0)"));
+        assert!(cpp.contains("(1.25 + 2.75)"));
     }
 
     #[test]

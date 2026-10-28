@@ -38,6 +38,7 @@ jobs:
           /tmp/cinder-control_flow
           test "$(/tmp/cinder-for_loops)" = "10"
           test "$(/tmp/cinder-foreach)" = "12"
+          test "$(/tmp/cinder-floats | paste -sd, -)" = "7,4"
           test "$(/tmp/cinder-arrays | paste -sd, -)" = "5,20,40,3"
           test "$(/tmp/cinder-loops | tail -n 1)" = "55"
           test "$(/tmp/cinder-functions | tail -n 2 | head -n 1)" = "144"
