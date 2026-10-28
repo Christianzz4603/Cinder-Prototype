@@ -1477,18 +1477,18 @@ multiline \n text""")
 
     #[test]
     fn emits_math_and_input_helpers() {
-        let cpp = compile_to_cpp("fn main() {\n let n = sqrt(81)\n let answer = input(\"Name? \")\n print(to_string(n))\n print(answer)
+        let cpp = compile_to_cpp("fn main() {\n let n = sqrt(81)\n let answer = input(\"Name? \")\n print(to_string(n))\n print(answer)\n}").unwrap();
+        assert!(cpp.contains("std::sqrt(81)"));
+        assert!(cpp.contains("cinder_input(std::string(\"Name? \"))"));
+        assert!(cpp.contains("cinder_to_string(n)"));
+    }
+
     #[test]
     fn reads_first_and_last_array_elements() {
         let cpp = crate::compile_to_cpp("fn main() { let values = [3, 6, 9]\n print(first(values))\n print(last(values)) }").unwrap();
         assert!(cpp.contains("cinder_first(values)"));
         assert!(cpp.contains("cinder_last(values)"));
         assert!(crate::compile_to_cpp("fn main() { print(first(12)) }").unwrap_err().contains("expects an Array"));
-    }
-\n}\n").unwrap();
-        assert!(cpp.contains("std::sqrt(81)"));
-        assert!(cpp.contains("cinder_input(std::string(\"Name? \"))"));
-        assert!(cpp.contains("cinder_to_string(n)"));
     }
 }
 
