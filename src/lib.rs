@@ -326,7 +326,7 @@ impl Parser {
                 self.expect(Kind::RParen, "')' after function arguments")?;
                 let expected = match s.as_str() {
                     "input" => Some((0, 1)),
-                    "len" | "is_empty" | "capacity" | "pop" | "abs | "sqrt" | "floor" | "ceil" | "round" | "to_string" |
+                    "len" | "is_empty" | "capacity" | "pop" | "abs" | "sqrt" | "floor" | "ceil" | "round" | "to_string" |
                     "parse_int" | "is_even" | "is_odd" | "sign" => Some((1, 1)),
                     "min" | "max" | "pow" | "contains" | "starts_with" | "ends_with" => Some((2, 2)),
                     "clamp" => Some((3, 3)),
@@ -1009,7 +1009,7 @@ fn type_check_program(functions: &[Function]) -> Result<(), String> {
 fn validate_expr_calls(expr: &Expr, signatures: &std::collections::HashMap<String, usize>) -> Result<(), String> {
     match expr {
         Expr::Call { name, args } => {
-            let builtin = matches!(name.as_str(), "input" | "len" | "is_empty" | "capacity" | "pop" | "abs | "sqrt" | "floor" | "ceil" | "round" | "to_string" | "parse_int" | "is_even" | "is_odd" | "sign" | "min" | "max" | "pow" | "contains" | "starts_with" | "ends_with" | "clamp");
+            let builtin = matches!(name.as_str(), "input" | "len" | "is_empty" | "capacity" | "pop" | "abs" | "sqrt" | "floor" | "ceil" | "round" | "to_string" | "parse_int" | "is_even" | "is_odd" | "sign" | "min" | "max" | "pow" | "contains" | "starts_with" | "ends_with" | "clamp");
             if !builtin {
                 let expected = signatures.get(name).ok_or_else(|| format!("unknown function '{name}'"))?;
                 if args.len() != *expected { return Err(format!("function '{name}' expects {expected} argument(s), got {}", args.len())); }
