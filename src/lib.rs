@@ -6,7 +6,7 @@ enum Kind {
     String(String),
     Number(String),
     LParen, RParen, LBrace, RBrace, LBracket, RBracket, Colon, Comma, Equal, Arrow,
-    Plus, Minus, Star, Slash, Percent, Bang,
+    Plus, Minus, Star, Slash, Percent, Bang, Tilde, Caret, Amp, Pipe, ShiftLeft, ShiftRight,
     Less, LessEqual, Greater, GreaterEqual, EqualEqual, BangEqual, DotDot,
     AndAnd, OrOr, Newline, Eof,
 }
@@ -41,16 +41,22 @@ fn lex(source: &str) -> Result<Vec<Token>, String> {
             '-' => { i += 1; Kind::Minus }
             '*' => { i += 1; Kind::Star }
             '%' => { i += 1; Kind::Percent }
+            '~' => { i += 1; Kind::Tilde }
+            '^' => { i += 1; Kind::Caret }
             '!' if chars.get(i + 1) == Some(&'=') => { i += 2; Kind::BangEqual }
             '!' => { i += 1; Kind::Bang }
             '=' if chars.get(i + 1) == Some(&'=') => { i += 2; Kind::EqualEqual }
             '=' => { i += 1; Kind::Equal }
+            '<' if chars.get(i + 1) == Some(&'<') => { i += 2; Kind::ShiftLeft }
             '<' if chars.get(i + 1) == Some(&'=') => { i += 2; Kind::LessEqual }
             '<' => { i += 1; Kind::Less }
+            '>' if chars.get(i + 1) == Some(&'>') => { i += 2; Kind::ShiftRight }
             '>' if chars.get(i + 1) == Some(&'=') => { i += 2; Kind::GreaterEqual }
             '>' => { i += 1; Kind::Greater }
             '&' if chars.get(i + 1) == Some(&'&') => { i += 2; Kind::AndAnd }
+            '&' => { i += 1; Kind::Amp }
             '|' if chars.get(i + 1) == Some(&'|') => { i += 2; Kind::OrOr }
+            '|' => { i += 1; Kind::Pipe }
             '/' => { i += 1; Kind::Slash }
             '"' => {
                 i += 1;
@@ -117,7 +123,7 @@ fn lex(source: &str) -> Result<Vec<Token>, String> {
 }
 
 #[derive(Clone, Debug)]
-enum BinaryOp { Add, Subtract, Multiply, Divide, Remainder, Less, LessEqual, Greater, GreaterEqual, Equal, NotEqual, And, Or }
+enum BinaryOp { Add, Subtract, Multiply, Divide, Remainder, Less, LessEqual, Greater, GreaterEqual, Equal, NotEqual, And, Or, BitAnd, BitOr, BitXor, ShiftLeft, ShiftRight }
 
 #[derive(Debug)]
 enum Expr {
@@ -234,7 +240,7 @@ impl Parser {
         Ok(value)
     }
     fn unary(&mut self) -> Result<Expr, String> {
-        if matches!(&self.current().kind, Kind::Minus | Kind::Bang) {
+        if matches!(&self.current().kind, Kind::Minus | Kind::Bang | Kind::Tilde) {
             let op = self.advance().kind;
             let value = self.unary()?;
             Ok(Expr::Unary { op, value: Box::new(value) })
@@ -246,17 +252,22 @@ impl Parser {
         Some(match kind {
             Kind::OrOr => (1, BinaryOp::Or),
             Kind::AndAnd => (2, BinaryOp::And),
-            Kind::EqualEqual => (3, BinaryOp::Equal),
-            Kind::BangEqual => (3, BinaryOp::NotEqual),
-            Kind::Less => (4, BinaryOp::Less),
-            Kind::LessEqual => (4, BinaryOp::LessEqual),
-            Kind::Greater => (4, BinaryOp::Greater),
-            Kind::GreaterEqual => (4, BinaryOp::GreaterEqual),
-            Kind::Plus => (5, BinaryOp::Add),
-            Kind::Minus => (5, BinaryOp::Subtract),
-            Kind::Star => (6, BinaryOp::Multiply),
-            Kind::Slash => (6, BinaryOp::Divide),
-            Kind::Percent => (6, BinaryOp::Remainder),
+            Kind::Pipe => (3, BinaryOp::BitOr),
+            Kind::Caret => (4, BinaryOp::BitXor),
+            Kind::Amp => (5, BinaryOp::BitAnd),
+            Kind::EqualEqual => (6, BinaryOp::Equal),
+            Kind::BangEqual => (6, BinaryOp::NotEqual),
+            Kind::Less => (7, BinaryOp::Less),
+            Kind::LessEqual => (7, BinaryOp::LessEqual),
+            Kind::Greater => (7, BinaryOp::Greater),
+            Kind::GreaterEqual => (7, BinaryOp::GreaterEqual),
+            Kind::ShiftLeft => (8, BinaryOp::ShiftLeft),
+            Kind::ShiftRight => (8, BinaryOp::ShiftRight),
+            Kind::Plus => (9, BinaryOp::Add),
+            Kind::Minus => (9, BinaryOp::Subtract),
+            Kind::Star => (10, BinaryOp::Multiply),
+            Kind::Slash => (10, BinaryOp::Divide),
+            Kind::Percent => (10, BinaryOp::Remainder),
             _ => return None,
         })
     }
@@ -494,7 +505,7 @@ fn cpp_expr(expr: &Expr) -> String {
             }
         }
         Expr::Unary { op, value } => {
-            let symbol = match op { Kind::Minus => "-", Kind::Bang => "!", _ => unreachable!() };
+            let symbol = match op { Kind::Minus => "-", Kind::Bang => "!", Kind::Tilde => "~", _ => unreachable!() };
             format!("({symbol}{})", cpp_expr(value))
         }
         Expr::Binary { left, op, right } => {
@@ -503,7 +514,7 @@ fn cpp_expr(expr: &Expr) -> String {
                 BinaryOp::Divide => "/", BinaryOp::Remainder => "%", BinaryOp::Less => "<",
                 BinaryOp::LessEqual => "<=", BinaryOp::Greater => ">", BinaryOp::GreaterEqual => ">=",
                 BinaryOp::Equal => "==", BinaryOp::NotEqual => "!=", BinaryOp::And => "&&",
-                BinaryOp::Or => "||",
+                BinaryOp::Or => "||", BinaryOp::BitAnd => "&", BinaryOp::BitOr => "|", BinaryOp::BitXor => "^", BinaryOp::ShiftLeft => "<<", BinaryOp::ShiftRight => ">>",
             };
             format!("({} {symbol} {})", cpp_expr(left), cpp_expr(right))
         }
@@ -629,8 +640,10 @@ fn infer_expr_type(
             match op {
                 Kind::Minus if is_numeric(&ty) => Ok(ty),
                 Kind::Bang if ty == "bool" => Ok("bool".into()),
+                Kind::Tilde if is_integer(&ty) => Ok(ty),
                 Kind::Minus => Err(format!("unary '-' requires a numeric value, got {ty}")),
                 Kind::Bang => Err(format!("logical '!' requires bool, got {ty}")),
+                Kind::Tilde => Err(format!("bitwise '~' requires an integer, got {ty}")),
                 _ => unreachable!("parser only creates supported unary operators"),
             }
         }
@@ -659,6 +672,10 @@ fn infer_expr_type(
                 BinaryOp::Equal | BinaryOp::NotEqual => Err(format!("equality operands have incompatible types {left_ty} and {right_ty}")),
                 BinaryOp::And | BinaryOp::Or if left_ty == "bool" && right_ty == "bool" => Ok("bool".into()),
                 BinaryOp::And | BinaryOp::Or => Err(format!("logical operators require bool operands, got {left_ty} and {right_ty}")),
+                BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor if is_integer(&left_ty) && left_ty == right_ty => Ok(left_ty),
+                BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor => Err(format!("bitwise operators require matching integer operands, got {left_ty} and {right_ty}")),
+                BinaryOp::ShiftLeft | BinaryOp::ShiftRight if is_integer(&left_ty) && is_integer(&right_ty) => Ok(left_ty),
+                BinaryOp::ShiftLeft | BinaryOp::ShiftRight => Err(format!("shift operators require integer operands, got {left_ty} and {right_ty}")),
             }
         }
         Expr::Call { name, args } => {
@@ -1013,6 +1030,15 @@ mod tests {
         assert!(cpp.contains("while ((i <= 5))"));
         assert!(cpp.contains("total = (total + i);"));
         assert!(cpp.contains("i = (i + 1);"));
+    }
+
+    #[test]
+    fn supports_bitwise_and_shift_operators() {
+        let cpp = compile_to_cpp("fn main() { print(5 & 3)\n print(5 | 2)\n print(5 ^ 1)\n print(1 << 4)\n print(16 >> 2)\n print(~0) }").unwrap();
+        assert!(cpp.contains("(5 & 3)"));
+        assert!(cpp.contains("(1 << 4)"));
+        assert!(cpp.contains("(~0)"));
+        assert!(compile_to_cpp("fn main() { print(1.5 & 1) }").is_err());
     }
 
     #[test]

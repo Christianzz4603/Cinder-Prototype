@@ -40,6 +40,7 @@ jobs:
           test "$(/tmp/cinder-foreach)" = "12"
           test "$(/tmp/cinder-floats | paste -sd, -)" = "7,4"
           test "$(/tmp/cinder-integer_bases | paste -sd, -)" = "255,10,63"
+          test "$(/tmp/cinder-bitwise | paste -sd, -)" = "1,7,4,16,4,-1"
           test "$(/tmp/cinder-arrays | paste -sd, -)" = "5,20,40,3"
           test "$(/tmp/cinder-loops | tail -n 1)" = "55"
           test "$(/tmp/cinder-functions | tail -n 2 | head -n 1)" = "144"
