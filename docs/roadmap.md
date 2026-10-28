@@ -20,14 +20,15 @@ This roadmap describes intended work, not completed features.
 - [x] Initial built-in utility and math functions
 - [x] while loops, `break`, and `continue`
 - [x] Range-based for loops and array for-each iteration
-- [x] Array literals, indexing, indexed mutation, push, and pop
+- [x] Array literals, explicitly typed empty arrays, indexing, indexed mutation, push, pop, emptiness checks, and capacity queries
 - [x] Array<T> type annotations, including function parameters
 - [x] User-defined functions and parameters
 - [x] Initial static type checker for variables, assignments, calls, operators, and boolean conditions
 - [x] Basic return-path analysis for non-main functions
 - [ ] Structs, enums, and field access
 - [ ] Pattern matching
-- [ ] Generic functions and function overloading
+- [ ] Generic functions
+- [x] Function overloading by parameter types
 - [ ] Full operator overloading
 - [ ] Closures and lambdas
 - [ ] Advanced compile-time evaluation
@@ -35,7 +36,8 @@ This roadmap describes intended work, not completed features.
 - [ ] Explicit ownership and borrowing of collections
 - [ ] Array bounds safety and explicit collection semantics
 - [x] Initial backend-independent structural IR and AST lowering
-- [ ] IR-based backend and typed/SSA IR
+- [x] IR-based C++ backend
+- [ ] Typed/SSA IR
 - [ ] Parser fuzz tests and golden diagnostics
 
 ## Milestone 0.3: Memory and safety model
