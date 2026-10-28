@@ -8,11 +8,11 @@ This roadmap describes intended work, not completed features.
 - [x] Lexer and parser for a small subset
 - [x] C++ source generation and native compilation
 - [x] Syntax checks and automated tests
+- [x] Arithmetic, comparison, equality, and logical expressions
 - [ ] Better diagnostics and source spans
-- [ ] Arithmetic and comparison expressions
 
 ## Milestone 0.2: A real language core
-- [ ] Expression grammar and operator precedence
+- [x] Expression grammar and operator precedence
 - [ ] if, else, while, and for
 - [ ] User-defined functions and parameters
 - [ ] Static type checker with explicit conversion rules

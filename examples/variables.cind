@@ -1,9 +1,10 @@
 fn main() {
-    let language: str = "Cinder"
-    let version: i32 = 1
-    let stable: bool = false
+    let width: i32 = 6
+    let height: i32 = 7
+    let area = width * height
+    let is_large = area >= 40
 
-    print(language)
-    print(version)
-    print(stable)
+    print(area)
+    print(is_large)
+    print(2 + 3 * 4)
 }

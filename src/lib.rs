@@ -2,9 +2,15 @@ use std::fmt::Write as _;
 
 #[derive(Clone, Debug, PartialEq)]
 enum Kind {
-    Ident(String), String(String), Number(String),
-    LParen, RParen, LBrace, RBrace, Colon, Equal, Newline, Eof,
+    Ident(String),
+    String(String),
+    Number(String),
+    LParen, RParen, LBrace, RBrace, Colon, Equal,
+    Plus, Minus, Star, Slash, Percent, Bang,
+    Less, LessEqual, Greater, GreaterEqual, EqualEqual, BangEqual,
+    AndAnd, OrOr, Newline, Eof,
 }
+
 #[derive(Clone, Debug)]
 struct Token { kind: Kind, line: usize }
 
@@ -13,21 +19,36 @@ fn lex(source: &str) -> Result<Vec<Token>, String> {
     let (mut i, mut line) = (0, 1);
     let mut tokens = Vec::new();
     while i < chars.len() {
-        match chars[i] {
-            ' ' | '\t' | '\r' => i += 1,
-            '\n' => { tokens.push(Token { kind: Kind::Newline, line }); line += 1; i += 1; }
+        let start_line = line;
+        let kind = match chars[i] {
+            ' ' | '\t' | '\r' => { i += 1; continue; }
+            '\n' => { i += 1; line += 1; Kind::Newline }
             '/' if chars.get(i + 1) == Some(&'/') => {
                 while i < chars.len() && chars[i] != '\n' { i += 1; }
+                continue;
             }
-            '(' => { tokens.push(Token { kind: Kind::LParen, line }); i += 1; }
-            ')' => { tokens.push(Token { kind: Kind::RParen, line }); i += 1; }
-            '{' => { tokens.push(Token { kind: Kind::LBrace, line }); i += 1; }
-            '}' => { tokens.push(Token { kind: Kind::RBrace, line }); i += 1; }
-            ':' => { tokens.push(Token { kind: Kind::Colon, line }); i += 1; }
-            '=' => { tokens.push(Token { kind: Kind::Equal, line }); i += 1; }
+            '(' => { i += 1; Kind::LParen }
+            ')' => { i += 1; Kind::RParen }
+            '{' => { i += 1; Kind::LBrace }
+            '}' => { i += 1; Kind::RBrace }
+            ':' => { i += 1; Kind::Colon }
+            '+' => { i += 1; Kind::Plus }
+            '-' => { i += 1; Kind::Minus }
+            '*' => { i += 1; Kind::Star }
+            '%' => { i += 1; Kind::Percent }
+            '!' if chars.get(i + 1) == Some(&'=') => { i += 2; Kind::BangEqual }
+            '!' => { i += 1; Kind::Bang }
+            '=' if chars.get(i + 1) == Some(&'=') => { i += 2; Kind::EqualEqual }
+            '=' => { i += 1; Kind::Equal }
+            '<' if chars.get(i + 1) == Some(&'=') => { i += 2; Kind::LessEqual }
+            '<' => { i += 1; Kind::Less }
+            '>' if chars.get(i + 1) == Some(&'=') => { i += 2; Kind::GreaterEqual }
+            '>' => { i += 1; Kind::Greater }
+            '&' if chars.get(i + 1) == Some(&'&') => { i += 2; Kind::AndAnd }
+            '|' if chars.get(i + 1) == Some(&'|') => { i += 2; Kind::OrOr }
+            '/' => { i += 1; Kind::Slash }
             '"' => {
                 i += 1;
-                let start_line = line;
                 let mut value = String::new();
                 let mut closed = false;
                 while i < chars.len() {
@@ -47,31 +68,44 @@ fn lex(source: &str) -> Result<Vec<Token>, String> {
                     }
                 }
                 if !closed { return Err(format!("line {start_line}: unterminated string literal")); }
-                tokens.push(Token { kind: Kind::String(value), line: start_line });
+                Kind::String(value)
             }
             c if c.is_ascii_digit() => {
                 let start = i;
                 while i < chars.len() && chars[i].is_ascii_digit() { i += 1; }
-                tokens.push(Token { kind: Kind::Number(chars[start..i].iter().collect()), line });
+                Kind::Number(chars[start..i].iter().collect())
             }
             c if c.is_ascii_alphabetic() || c == '_' => {
                 let start = i;
                 while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') { i += 1; }
-                tokens.push(Token { kind: Kind::Ident(chars[start..i].iter().collect()), line });
+                Kind::Ident(chars[start..i].iter().collect())
             }
             other => return Err(format!("line {line}: unexpected character '{other}'")),
-        }
+        };
+        tokens.push(Token { kind, line: start_line });
     }
     tokens.push(Token { kind: Kind::Eof, line });
     Ok(tokens)
 }
 
+#[derive(Clone, Debug)]
+enum BinaryOp { Add, Subtract, Multiply, Divide, Remainder, Less, LessEqual, Greater, GreaterEqual, Equal, NotEqual, And, Or }
+
 #[derive(Debug)]
-enum Expr { Text(String), Number(String), Bool(bool), Name(String) }
+enum Expr {
+    Text(String),
+    Number(String),
+    Bool(bool),
+    Name(String),
+    Unary { op: Kind, value: Box<Expr> },
+    Binary { left: Box<Expr>, op: BinaryOp, right: Box<Expr> },
+}
+
 #[derive(Debug)]
 enum Stmt { Let { name: String, value: Expr }, Print(Expr), Return(Expr) }
 
 struct Parser { tokens: Vec<Token>, at: usize }
+
 impl Parser {
     fn current(&self) -> &Token { &self.tokens[self.at] }
     fn advance(&mut self) -> Token {
@@ -98,7 +132,7 @@ impl Parser {
             token => Err(format!("line {}: expected {description}", token.line)),
         }
     }
-    fn expression(&mut self) -> Result<Expr, String> {
+    fn primary(&mut self) -> Result<Expr, String> {
         let token = self.advance();
         match token.kind {
             Kind::String(s) => Ok(Expr::Text(s)),
@@ -106,9 +140,52 @@ impl Parser {
             Kind::Ident(s) if s == "true" => Ok(Expr::Bool(true)),
             Kind::Ident(s) if s == "false" => Ok(Expr::Bool(false)),
             Kind::Ident(s) => Ok(Expr::Name(s)),
-            _ => Err(format!("line {}: expected a string, integer, boolean, or variable name", token.line)),
+            Kind::LParen => {
+                let value = self.expression()?;
+                self.expect(Kind::RParen, "')' after expression")?;
+                Ok(value)
+            }
+            _ => Err(format!("line {}: expected an expression", token.line)),
         }
     }
+    fn unary(&mut self) -> Result<Expr, String> {
+        if matches!(&self.current().kind, Kind::Minus | Kind::Bang) {
+            let op = self.advance().kind;
+            let value = self.unary()?;
+            Ok(Expr::Unary { op, value: Box::new(value) })
+        } else {
+            self.primary()
+        }
+    }
+    fn precedence(kind: &Kind) -> Option<(u8, BinaryOp)> {
+        Some(match kind {
+            Kind::OrOr => (1, BinaryOp::Or),
+            Kind::AndAnd => (2, BinaryOp::And),
+            Kind::EqualEqual => (3, BinaryOp::Equal),
+            Kind::BangEqual => (3, BinaryOp::NotEqual),
+            Kind::Less => (4, BinaryOp::Less),
+            Kind::LessEqual => (4, BinaryOp::LessEqual),
+            Kind::Greater => (4, BinaryOp::Greater),
+            Kind::GreaterEqual => (4, BinaryOp::GreaterEqual),
+            Kind::Plus => (5, BinaryOp::Add),
+            Kind::Minus => (5, BinaryOp::Subtract),
+            Kind::Star => (6, BinaryOp::Multiply),
+            Kind::Slash => (6, BinaryOp::Divide),
+            Kind::Percent => (6, BinaryOp::Remainder),
+            _ => return None,
+        })
+    }
+    fn binary(&mut self, min_precedence: u8) -> Result<Expr, String> {
+        let mut left = self.unary()?;
+        while let Some((precedence, _)) = Self::precedence(&self.current().kind) {
+            if precedence < min_precedence { break; }
+            let (_, op) = Self::precedence(&self.advance().kind).expect("operator was checked");
+            let right = self.binary(precedence + 1)?;
+            left = Expr::Binary { left: Box::new(left), op, right: Box::new(right) };
+        }
+        Ok(left)
+    }
+    fn expression(&mut self) -> Result<Expr, String> { self.binary(1) }
     fn statement(&mut self) -> Result<Stmt, String> {
         match &self.current().kind {
             Kind::Ident(word) if word == "let" || word == "var" => {
@@ -158,6 +235,7 @@ impl Parser {
         Ok(statements)
     }
 }
+
 fn cpp_string(value: &str) -> String {
     let mut out = String::from("\"");
     for ch in value.chars() {
@@ -174,16 +252,32 @@ fn cpp_string(value: &str) -> String {
     out.push('"');
     out
 }
+
 fn cpp_expr(expr: &Expr) -> String {
     match expr {
         Expr::Text(s) => format!("std::string({})", cpp_string(s)),
         Expr::Number(n) => n.clone(),
         Expr::Bool(b) => b.to_string(),
         Expr::Name(n) => n.clone(),
+        Expr::Unary { op, value } => {
+            let symbol = match op { Kind::Minus => "-", Kind::Bang => "!", _ => unreachable!() };
+            format!("({symbol}{})", cpp_expr(value))
+        }
+        Expr::Binary { left, op, right } => {
+            let symbol = match op {
+                BinaryOp::Add => "+", BinaryOp::Subtract => "-", BinaryOp::Multiply => "*",
+                BinaryOp::Divide => "/", BinaryOp::Remainder => "%", BinaryOp::Less => "<",
+                BinaryOp::LessEqual => "<=", BinaryOp::Greater => ">", BinaryOp::GreaterEqual => ">=",
+                BinaryOp::Equal => "==", BinaryOp::NotEqual => "!=", BinaryOp::And => "&&",
+                BinaryOp::Or => "||",
+            };
+            format!("({} {symbol} {})", cpp_expr(left), cpp_expr(right))
+        }
     }
 }
 
-/// Parse the initial Cinder language subset and emit C++ for native compilation.
+/// Parse the current Cinder subset and emit C++ for native compilation.
+/// This bootstrap does not yet perform static type checking.
 pub fn compile_to_cpp(source: &str) -> Result<String, String> {
     let tokens = lex(source)?;
     let mut parser = Parser { tokens, at: 0 };
@@ -203,23 +297,46 @@ pub fn compile_to_cpp(source: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::compile_to_cpp;
+
     #[test]
     fn compiles_hello_world_to_native_source() {
         let cpp = compile_to_cpp("fn main() {\n    print(\"Hello, Cinder!\")\n}\n").unwrap();
         assert!(cpp.contains("std::cout"));
         assert!(cpp.contains("Hello, Cinder!"));
     }
+
     #[test]
     fn supports_variables_and_inferred_types() {
         let cpp = compile_to_cpp("fn main() {\n let count: i32 = 42\n print(count)\n}\n").unwrap();
         assert!(cpp.contains("auto count = 42;"));
         assert!(cpp.contains("std::cout << count"));
     }
+
+    #[test]
+    fn respects_operator_precedence() {
+        let cpp = compile_to_cpp("fn main() {\n print(2 + 3 * 4)\n}\n").unwrap();
+        assert!(cpp.contains("(2 + (3 * 4))"));
+    }
+
+    #[test]
+    fn supports_comparisons_and_logical_operators() {
+        let cpp = compile_to_cpp("fn main() {\n print(3 < 4 && 5 != 6)\n}\n").unwrap();
+        assert!(cpp.contains("((3 < 4) && (5 != 6))"));
+    }
+
+    #[test]
+    fn supports_unary_operators_and_grouping() {
+        let cpp = compile_to_cpp("fn main() {\n print(-(2 + 3))\n print(!false)\n}\n").unwrap();
+        assert!(cpp.contains("(-(2 + 3))"));
+        assert!(cpp.contains("(!false)"));
+    }
+
     #[test]
     fn rejects_unclosed_function_body() {
         let err = compile_to_cpp("fn main() {\n print(\"oops\")\n").unwrap_err();
         assert!(err.contains("expected '}'"));
     }
+
     #[test]
     fn rejects_unsupported_characters() {
         let err = compile_to_cpp("fn main() {\n print(@)\n}\n").unwrap_err();
