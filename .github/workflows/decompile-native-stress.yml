@@ -1,0 +1,107 @@
+name: Decompile Native Stress Library
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: "Run ID of a successful Build Native Stress Library run"
+        required: true
+        type: string
+      max_functions:
+        description: "Maximum functions to decompile and commit (1-2000)"
+        required: true
+        default: "500"
+        type: string
+permissions:
+  actions: read
+  contents: write
+concurrency:
+  group: native-stress-decompile
+  cancel-in-progress: false
+jobs:
+  decompile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Validate function limit
+        env:
+          MAX_FUNCTIONS: ${{ inputs.max_functions }}
+        run: |
+          python - <<'PY'
+          import os
+          n=int(os.environ["MAX_FUNCTIONS"])
+          if not 1<=n<=2000: raise SystemExit("max_functions must be 1..2000")
+          PY
+      - name: Download library artifact from selected build run
+        uses: actions/download-artifact@v4
+        with:
+          name: native-stress-library
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          path: input
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Download official Ghidra release
+        run: |
+          python - <<'PY'
+          import json,os,urllib.request
+          req=urllib.request.Request("https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/latest",headers={"Accept":"application/vnd.github+json","User-Agent":"native-stress-benchmark"})
+          with urllib.request.urlopen(req,timeout=30) as response: release=json.load(response)
+          assets=[a for a in release.get("assets",[]) if a["name"].startswith("ghidra_") and a["name"].endswith(".zip")]
+          if not assets: raise SystemExit("No official Ghidra distribution ZIP found")
+          asset=assets[0]
+          with open(os.environ["GITHUB_ENV"],"a") as env:
+              env.write("GHIDRA_ZIP_URL="+asset["browser_download_url"]+"\n")
+              env.write("GHIDRA_ZIP_NAME="+asset["name"]+"\n")
+          print("Selected:",asset["name"])
+          PY
+          mkdir -p "$RUNNER_TEMP/ghidra"
+          curl --fail --location --retry 3 "$GHIDRA_ZIP_URL" -o "$RUNNER_TEMP/$GHIDRA_ZIP_NAME"
+          unzip -q "$RUNNER_TEMP/$GHIDRA_ZIP_NAME" -d "$RUNNER_TEMP/ghidra"
+          GHIDRA_HOME="$(find "$RUNNER_TEMP/ghidra" -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          echo "GHIDRA_HOME=$GHIDRA_HOME" >> "$GITHUB_ENV"
+          test -x "$GHIDRA_HOME/support/analyzeHeadless"
+      - name: Analyze and export pseudocode
+        env:
+          MAX_FUNCTIONS: ${{ inputs.max_functions }}
+          _JAVA_OPTIONS: "-Xmx5g"
+        run: |
+          set -euo pipefail
+          test -f input/libnative_stress.so
+          mkdir -p "$RUNNER_TEMP/ghidra-project" reports/ghidra
+          "$GHIDRA_HOME/support/analyzeHeadless" \
+            "$RUNNER_TEMP/ghidra-project" NativeStress \
+            -import input/libnative_stress.so -overwrite \
+            -scriptPath "$GITHUB_WORKSPACE/scripts" \
+            -postScript ExportPseudocode.java "$GITHUB_WORKSPACE/reports/ghidra" "$MAX_FUNCTIONS"
+          {
+            echo "Ghidra asset: $GHIDRA_ZIP_NAME"
+            echo "Build run ID: ${{ inputs.build_run_id }}"
+            echo "Maximum functions: $MAX_FUNCTIONS"
+            sha256sum input/libnative_stress.so
+          } > reports/ghidra/ANALYSIS-METADATA.txt
+          du -sh reports/ghidra
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-stress-pseudocode
+          path: reports/ghidra/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Commit pseudocode to dedicated branch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout -B decompiled-results origin/main
+          git add reports/ghidra/
+          if ! git diff --cached --quiet; then
+            git commit -m "analysis: add Ghidra pseudocode report"
+            git push origin HEAD:decompiled-results
+          fi
