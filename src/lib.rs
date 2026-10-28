@@ -209,7 +209,7 @@ enum Pattern { Number(String), Text(String), Bool(bool), Wildcard }
 struct MatchArm { pattern: Pattern, body: Vec<Stmt> }
 
 #[derive(Debug)]
-enum Stmt { Let { name: String, declared_type: Option<String>, mutable: bool, value: Expr }, Assign { name: String, value: Expr }, IndexAssign { name: String, index: Expr, value: Expr }, Push { name: String, value: Expr }, Print(Expr), Return(Expr), Break, Continue, If { condition: Expr, then_branch: Vec<Stmt>, else_branch: Option<Vec<Stmt>> }, While { condition: Expr, body: Vec<Stmt> }, ForRange { name: String, start: Expr, end: Expr, body: Vec<Stmt> }, ForEach { name: String, iterable: Expr, body: Vec<Stmt> }, Match { value: Expr, arms: Vec<MatchArm> } }
+enum Stmt { Let { name: String, declared_type: Option<String>, mutable: bool, constant: bool, value: Expr }, Assign { name: String, value: Expr }, IndexAssign { name: String, index: Expr, value: Expr }, Push { name: String, value: Expr }, Print(Expr), Return(Expr), Break, Continue, If { condition: Expr, then_branch: Vec<Stmt>, else_branch: Option<Vec<Stmt>> }, While { condition: Expr, body: Vec<Stmt> }, ForRange { name: String, start: Expr, end: Expr, body: Vec<Stmt> }, ForEach { name: String, iterable: Expr, body: Vec<Stmt> }, Match { value: Expr, arms: Vec<MatchArm> } }
 
 #[derive(Debug)]
 struct Function { name: String, type_params: Vec<String>, params: Vec<(String, String)>, return_type: String, body: Vec<Stmt> }
@@ -439,8 +439,9 @@ impl Parser {
     }
     fn statement(&mut self) -> Result<Stmt, String> {
         match &self.current().kind {
-            Kind::Ident(word) if word == "let" || word == "var" => {
+            Kind::Ident(word) if word == "let" || word == "var" || word == "const" => {
                 let mutable = word == "var";
+                let constant = word == "const";
                 self.advance();
                 let name = self.take_name("a variable name")?;
                 let declared_type = if matches!(&self.current().kind, Kind::Colon) {
@@ -448,7 +449,7 @@ impl Parser {
                     Some(self.parse_type("a variable type")?)
                 } else { None };
                 self.expect(Kind::Equal, "'=' after variable declaration")?;
-                Ok(Stmt::Let { name, declared_type, mutable, value: self.expression()? })
+                Ok(Stmt::Let { name, declared_type, mutable, constant, value: self.expression()? })
             }
             Kind::Ident(word) if word == "push" => {
                 self.advance();
@@ -735,8 +736,9 @@ fn emit_statements(statements: &[Stmt], cpp: &mut String, indent: usize) {
     let pad = "    ".repeat(indent);
     for stmt in statements {
         match stmt {
-            Stmt::Let { name, declared_type, mutable, value } => {
-                let qualifier = if *mutable { "" } else { "const " };
+            Stmt::Let { name, declared_type, mutable, constant, value } => {
+                let constexpr_value = *constant && matches!(value, Expr::Number(_) | Expr::Bool(_));
+                let qualifier = if *mutable { "" } else if constexpr_value { "constexpr " } else { "const " };
                 let ty = declared_type.as_deref().map(cpp_type).unwrap_or_else(|| "auto".to_string());
                 writeln!(cpp, "{pad}{qualifier}{ty} {name} = {};", cpp_expr(value)).unwrap();
             }
@@ -1099,6 +1101,15 @@ fn infer_expr_type(
     }
 }
 
+fn is_constant_expression(expr: &Expr) -> bool {
+    match expr {
+        Expr::Text(_) | Expr::Number(_) | Expr::Bool(_) => true,
+        Expr::Unary { value, .. } => is_constant_expression(value),
+        Expr::Binary { left, right, .. } => is_constant_expression(left) && is_constant_expression(right),
+        _ => false,
+    }
+}
+
 fn check_statements(
     statements: &[Stmt],
     scopes: &mut TypeScopes,
@@ -1108,9 +1119,12 @@ fn check_statements(
 ) -> Result<(), String> {
     for stmt in statements {
         match stmt {
-            Stmt::Let { name, declared_type, mutable, value } => {
+            Stmt::Let { name, declared_type, mutable, constant, value } => {
                 if scopes.last().is_some_and(|scope| scope.contains_key(name)) {
                     return Err(format!("variable '{name}' is already declared in this scope"));
+                }
+                if *constant && !is_constant_expression(value) {
+                    return Err(format!("const '{name}' requires a compile-time constant expression"));
                 }
                 let inferred = match (declared_type.as_deref(), value) {
                     (Some(ty), Expr::Array(items)) if items.is_empty() && ty.starts_with("Array<") => ty.to_string(),
@@ -1745,6 +1759,21 @@ multiline \n text""")
         assert!(crate::compile_to_cpp("fn main() { print(contains([1, 2], \"x\")) }").is_err());
 
 
+
+
+    #[test]
+    fn supports_compile_time_const_declarations() {
+        let cpp = crate::compile_to_cpp(r#"fn main() {
+    const ANSWER: i64 = 2 + 3 * 4
+    const GREETING: String = "Cinder" + "!"
+    print(ANSWER)
+    print(GREETING)
+}"#).unwrap();
+        assert!(cpp.contains("constexpr std::int64_t ANSWER = 14;"));
+        assert!(cpp.contains("const std::string GREETING = std::string(\"Cinder!\");"));
+        assert!(crate::compile_to_cpp("fn main() { const value = input() }").unwrap_err().contains("compile-time constant expression"));
+        assert!(crate::compile_to_cpp("fn main() { const value = 2 + 3 }").is_ok());
+    }
 
     #[test]
     fn folds_constant_arithmetic_comparisons_and_strings_in_ir() {

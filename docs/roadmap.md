@@ -35,6 +35,7 @@ This roadmap describes intended work, not completed features.
 - [x] Typed expression closures with value capture
 - [ ] Block closures, mutable captures, and closure escape analysis
 - [x] Constant-fold literal arithmetic, comparisons, boolean/bitwise expressions, and string concatenation in IR
+- [x] Explicit `const` declarations with compile-time initializer validation
 - [ ] Compile-time functions, const evaluation, and compile-time diagnostics
 - [ ] Complete collection library and custom collection types
 - [ ] Explicit ownership and borrowing of collections

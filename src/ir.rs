@@ -30,7 +30,7 @@ pub struct IrParameter {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum IrStatement {
-    Let { name: String, ty: Option<String>, mutable: bool, value: IrExpression },
+    Let { name: String, ty: Option<String>, mutable: bool, constant: bool, value: IrExpression },
     Match { value: IrExpression, arms: Vec<IrMatchArm> },
     Assign { name: String, value: IrExpression },
     IndexAssign { name: String, index: IrExpression, value: IrExpression },
@@ -125,8 +125,8 @@ fn lower_expr(expr: &Expr) -> IrExpression {
 
 fn lower_statements(statements: &[Stmt]) -> Vec<IrStatement> {
     statements.iter().map(|stmt| match stmt {
-        Stmt::Let { name, declared_type, mutable, value } => IrStatement::Let {
-            name: name.clone(), ty: declared_type.clone(), mutable: *mutable, value: lower_expr(value),
+        Stmt::Let { name, declared_type, mutable, constant, value } => IrStatement::Let {
+            name: name.clone(), ty: declared_type.clone(), mutable: *mutable, constant: *constant, value: lower_expr(value),
         },
         Stmt::Assign { name, value } => IrStatement::Assign { name: name.clone(), value: lower_expr(value) },
         Stmt::IndexAssign { name, index, value } => IrStatement::IndexAssign {
@@ -435,8 +435,9 @@ fn emit_statements(statements: &[IrStatement], cpp: &mut String, indent: usize) 
     let pad = "    ".repeat(indent);
     for stmt in statements {
         match stmt {
-            IrStatement::Let { name, ty, mutable, value } => {
-                let qualifier = if *mutable { "" } else { "const " };
+            IrStatement::Let { name, ty, mutable, constant, value } => {
+                let constexpr_value = *constant && matches!(value, IrExpression::Number(_) | IrExpression::Bool(_));
+                let qualifier = if *mutable { "" } else if constexpr_value { "constexpr " } else { "const " };
                 let declared = ty.as_deref().map(cpp_type).unwrap_or_else(|| "auto".to_string());
                 let initializer = match (ty.as_deref(), value) {
                     (Some(ty), IrExpression::Array(items)) if items.is_empty() =>
