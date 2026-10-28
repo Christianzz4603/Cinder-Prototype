@@ -110,7 +110,7 @@ enum Expr {
 }
 
 #[derive(Debug)]
-enum Stmt { Let { name: String, declared_type: Option<String>, mutable: bool, value: Expr }, Assign { name: String, value: Expr }, Print(Expr), Return(Expr), Break, Continue, If { condition: Expr, then_branch: Vec<Stmt>, else_branch: Option<Vec<Stmt>> }, While { condition: Expr, body: Vec<Stmt> }, ForRange { name: String, start: Expr, end: Expr, body: Vec<Stmt> } }
+enum Stmt { Let { name: String, declared_type: Option<String>, mutable: bool, value: Expr }, Assign { name: String, value: Expr }, Push { name: String, value: Expr }, Print(Expr), Return(Expr), Break, Continue, If { condition: Expr, then_branch: Vec<Stmt>, else_branch: Option<Vec<Stmt>> }, While { condition: Expr, body: Vec<Stmt> }, ForRange { name: String, start: Expr, end: Expr, body: Vec<Stmt> } }
 
 #[derive(Debug)]
 struct Function { name: String, params: Vec<(String, String)>, return_type: String, body: Vec<Stmt> }
@@ -270,6 +270,15 @@ impl Parser {
                 } else { None };
                 self.expect(Kind::Equal, "'=' after variable declaration")?;
                 Ok(Stmt::Let { name, declared_type, mutable, value: self.expression()? })
+            }
+            Kind::Ident(word) if word == "push" => {
+                self.advance();
+                self.expect(Kind::LParen, "'(' after push")?;
+                let name = self.take_name("a mutable array variable")?;
+                self.expect(Kind::Comma, "',' after array variable")?;
+                let value = self.expression()?;
+                self.expect(Kind::RParen, "')' after pushed value")?;
+                Ok(Stmt::Push { name, value })
             }
             Kind::Ident(word) if word == "print" => {
                 self.advance(); self.expect(Kind::LParen, "'(' after print")?;
@@ -445,6 +454,7 @@ fn emit_statements(statements: &[Stmt], cpp: &mut String, indent: usize) {
                 writeln!(cpp, "{pad}{qualifier}{ty} {name} = {};", cpp_expr(value)).unwrap();
             }
             Stmt::Assign { name, value } => { writeln!(cpp, "{pad}{name} = {};", cpp_expr(value)).unwrap(); }
+            Stmt::Push { name, value } => { writeln!(cpp, "{pad}{name}.push_back({});", cpp_expr(value)).unwrap(); }
             Stmt::Print(value) => { writeln!(cpp, "{pad}std::cout << {} << '\\n';", cpp_expr(value)).unwrap(); }
             Stmt::Return(value) => { writeln!(cpp, "{pad}return {};", cpp_expr(value)).unwrap(); }
             Stmt::Break => { writeln!(cpp, "{pad}break;").unwrap(); }
@@ -655,6 +665,14 @@ fn check_statements(
                     return Err(format!("cannot assign {value_ty} to variable '{name}' of type {target_ty}"));
                 }
             }
+            Stmt::Push { name, value } => {
+                let (array_ty, mutable) = lookup_variable(scopes, name).ok_or_else(|| format!("unknown array variable '{name}'"))?;
+                if !mutable { return Err(format!("cannot push to immutable array '{name}'; declare it with var")); }
+                let element_ty = array_ty.strip_prefix("Array<").and_then(|ty| ty.strip_suffix(">"))
+                    .ok_or_else(|| format!("push requires an Array, got {array_ty}"))?;
+                let value_ty = infer_expr_type(value, scopes, signatures)?;
+                if element_ty != value_ty { return Err(format!("array element type is {element_ty}, but pushed value has type {value_ty}")); }
+            }
             Stmt::Print(value) => { infer_expr_type(value, scopes, signatures)?; }
             Stmt::Return(value) => {
                 let actual = infer_expr_type(value, scopes, signatures)?;
@@ -745,6 +763,7 @@ fn validate_function_calls(statements: &[Stmt], signatures: &std::collections::H
     for stmt in statements {
         match stmt {
             Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Print(value) | Stmt::Return(value) => validate_expr_calls(value, signatures)?,
+            Stmt::Push { value, .. } => validate_expr_calls(value, signatures)?,
             Stmt::Break if loop_depth == 0 => return Err("break used outside a loop".to_string()),
             Stmt::Continue if loop_depth == 0 => return Err("continue used outside a loop".to_string()),
             Stmt::Break | Stmt::Continue => {},
@@ -892,6 +911,29 @@ mod tests {
         assert!(cpp.contains("std::vector{10, 20, 30}"));
         assert!(cpp.contains("values[1]"));
         assert!(cpp.contains("cinder_len(values)"));
+    }
+
+    #[test]
+    fn grows_mutable_arrays_with_push() {
+        let cpp = compile_to_cpp(r#"fn main() {
+            var values = [10, 20]
+            push(values, 30)
+            print(len(values))
+        }"#).unwrap();
+        assert!(cpp.contains("values.push_back(30);"));
+        assert!(cpp.contains("cinder_len(values)"));
+    }
+
+    #[test]
+    fn rejects_push_on_immutable_arrays_and_mismatched_values() {
+        assert!(compile_to_cpp(r#"fn main() {
+            let values = [1, 2]
+            push(values, 3)
+        }"#).unwrap_err().contains("immutable array"));
+        assert!(compile_to_cpp(r#"fn main() {
+            var values = [1, 2]
+            push(values, "x")
+        }"#).unwrap_err().contains("pushed value has type"));
     }
 
     #[test]
