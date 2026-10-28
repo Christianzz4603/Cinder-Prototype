@@ -11,7 +11,7 @@ This roadmap describes intended work, not completed features.
 - [x] Arithmetic, comparison, equality, and logical expressions
 - [ ] Better diagnostics and source spans
 - [x] Triple-quoted multiline strings and raw string literals
-- [ ] String interpolation
+- [x] String interpolation with expression evaluation and escaped literal braces
 - [x] Accept `str` as an alias for `String`
 
 ## Milestone 0.2: A real language core
