@@ -4,6 +4,7 @@ fn main() {
     push(values, 40)
     print(values[0])
     print(values[1])
+    print(contains(values, 20))
     print(pop(values))
     print(len(values))
 }

@@ -20,7 +20,7 @@ This roadmap describes intended work, not completed features.
 - [x] Initial built-in utility and math functions
 - [x] while loops, `break`, and `continue`
 - [x] Range-based for loops and array for-each iteration
-- [x] Array literals, explicitly typed empty arrays, indexing, indexed mutation, push, pop, emptiness checks, and capacity queries
+- [x] Array literals, explicitly typed empty arrays, indexing, indexed mutation, push, pop, first/last access, contains, emptiness checks, and capacity queries
 - [x] Array<T> type annotations, including function parameters
 - [x] User-defined functions and parameters
 - [x] Initial static type checker for variables, assignments, calls, operators, and boolean conditions
