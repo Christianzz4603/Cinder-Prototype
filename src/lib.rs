@@ -1745,6 +1745,21 @@ multiline \n text""")
         assert!(crate::compile_to_cpp("fn main() { print(contains([1, 2], \"x\")) }").is_err());
 
 
+
+    #[test]
+    fn folds_constant_arithmetic_comparisons_and_strings_in_ir() {
+        let cpp = crate::compile_to_cpp(r#"fn main() {
+    print(2 + 3 * 4)
+    print(10 > 3)
+    print("Cinder" + "!")
+    print((0x10 << 1) | 1)
+}"#).unwrap();
+        assert!(cpp.contains("std::cout << 14;"));
+        assert!(cpp.contains("std::cout << true;"));
+        assert!(cpp.contains("std::string(\"Cinder!\")"));
+        assert!(cpp.contains("std::cout << 33;"));
+        assert!(!cpp.contains("(2 + (3 * 4))"));
+    }
     #[test]
     fn supports_typed_closures_and_value_captures() {
         let cpp = crate::compile_to_cpp(r#"fn main() {

@@ -166,8 +166,154 @@ fn lower_statements(statements: &[Stmt]) -> Vec<IrStatement> {
     }).collect()
 }
 
-pub(crate) fn lower_program(functions: &[Function]) -> IrProgram {
-    IrProgram {
+pub(crate) 
+fn parse_integer_literal(value: &str) -> Option<i64> {
+    if let Some(digits) = value.strip_prefix("0x").or_else(|| value.strip_prefix("0X")) {
+        i64::from_str_radix(digits, 16).ok()
+    } else if let Some(digits) = value.strip_prefix("0b").or_else(|| value.strip_prefix("0B")) {
+        i64::from_str_radix(digits, 2).ok()
+    } else if let Some(digits) = value.strip_prefix("0o").or_else(|| value.strip_prefix("0O")) {
+        i64::from_str_radix(digits, 8).ok()
+    } else {
+        value.parse().ok()
+    }
+}
+
+fn numeric_literal(value: &str) -> Option<f64> {
+    if value.contains('.') { value.parse().ok() }
+    else { parse_integer_literal(value).map(|number| number as f64) }
+}
+
+fn folded_float(value: f64) -> Option<IrExpression> {
+    if !value.is_finite() { return None; }
+    let mut literal = value.to_string();
+    if !literal.contains('.') && !literal.contains('e') && !literal.contains('E') {
+        literal.push_str(".0");
+    }
+    Some(IrExpression::Number(literal))
+}
+
+fn fold_binary(left: &IrExpression, operator: &str, right: &IrExpression) -> Option<IrExpression> {
+    if let (IrExpression::String(a), IrExpression::String(b)) = (left, right) {
+        return match operator {
+            "+" => Some(IrExpression::String(format!("{a}{b}"))),
+            "==" => Some(IrExpression::Bool(a == b)),
+            "!=" => Some(IrExpression::Bool(a != b)),
+            _ => None,
+        };
+    }
+    if let (IrExpression::Bool(a), IrExpression::Bool(b)) = (left, right) {
+        return match operator {
+            "&&" => Some(IrExpression::Bool(*a && *b)),
+            "||" => Some(IrExpression::Bool(*a || *b)),
+            "==" => Some(IrExpression::Bool(a == b)),
+            "!=" => Some(IrExpression::Bool(a != b)),
+            _ => None,
+        };
+    }
+    if let (IrExpression::Number(a), IrExpression::Number(b)) = (left, right) {
+        if let (Some(a_int), Some(b_int)) = (parse_integer_literal(a), parse_integer_literal(b)) {
+            let integer_result = match operator {
+                "+" => a_int.checked_add(b_int).map(IrExpression::Number),
+                "-" => a_int.checked_sub(b_int).map(IrExpression::Number),
+                "*" => a_int.checked_mul(b_int).map(IrExpression::Number),
+                "/" => a_int.checked_div(b_int).map(IrExpression::Number),
+                "%" => a_int.checked_rem(b_int).map(IrExpression::Number),
+                "&" => Some(IrExpression::Number((a_int & b_int).to_string())),
+                "|" => Some(IrExpression::Number((a_int | b_int).to_string())),
+                "^" => Some(IrExpression::Number((a_int ^ b_int).to_string())),
+                "<<" if (0..64).contains(&b_int) => a_int.checked_shl(b_int as u32).map(IrExpression::Number),
+                ">>" if (0..64).contains(&b_int) => a_int.checked_shr(b_int as u32).map(IrExpression::Number),
+                "==" => Some(IrExpression::Bool(a_int == b_int)),
+                "!=" => Some(IrExpression::Bool(a_int != b_int)),
+                "<" => Some(IrExpression::Bool(a_int < b_int)),
+                "<=" => Some(IrExpression::Bool(a_int <= b_int)),
+                ">" => Some(IrExpression::Bool(a_int > b_int)),
+                ">=" => Some(IrExpression::Bool(a_int >= b_int)),
+                _ => None,
+            };
+            if integer_result.is_some() { return integer_result; }
+        }
+        let (Some(a), Some(b)) = (numeric_literal(a), numeric_literal(b)) else { return None; };
+        return match operator {
+            "+" => folded_float(a + b),
+            "-" => folded_float(a - b),
+            "*" => folded_float(a * b),
+            "/" if b != 0.0 => folded_float(a / b),
+            "%" if b != 0.0 => folded_float(a % b),
+            "==" => Some(IrExpression::Bool(a == b)),
+            "!=" => Some(IrExpression::Bool(a != b)),
+            "<" => Some(IrExpression::Bool(a < b)),
+            "<=" => Some(IrExpression::Bool(a <= b)),
+            ">" => Some(IrExpression::Bool(a > b)),
+            ">=" => Some(IrExpression::Bool(a >= b)),
+            _ => None,
+        };
+    }
+    None
+}
+
+fn fold_expression(expression: &mut IrExpression) {
+    match expression {
+        IrExpression::Array(items) => for item in items { fold_expression(item); },
+        IrExpression::Index { value, index } => { fold_expression(value); fold_expression(index); }
+        IrExpression::Call { arguments, .. } => for argument in arguments { fold_expression(argument); },
+        IrExpression::Lambda { body, .. } => fold_expression(body),
+        IrExpression::Unary { operator, value } => {
+            fold_expression(value);
+            let folded = match (&**value, operator.as_str()) {
+                (IrExpression::Bool(value), "!") => Some(IrExpression::Bool(!value)),
+                (IrExpression::Number(value), "-") => parse_integer_literal(value)
+                    .and_then(i64::checked_neg).map(|number| IrExpression::Number(number.to_string()))
+                    .or_else(|| value.parse::<f64>().ok().and_then(|number| folded_float(-number))),
+                (IrExpression::Number(value), "~") => parse_integer_literal(value).map(|number| IrExpression::Number((!number).to_string())),
+                _ => None,
+            };
+            if let Some(folded) = folded { *expression = folded; }
+        }
+        IrExpression::Binary { left, operator, right } => {
+            fold_expression(left);
+            fold_expression(right);
+            let folded = fold_binary(left, operator, right);
+            if let Some(folded) = folded { *expression = folded; }
+        }
+        IrExpression::String(_) | IrExpression::Number(_) | IrExpression::Bool(_) | IrExpression::Variable(_) => {}
+    }
+}
+
+fn fold_statements(statements: &mut [IrStatement]) {
+    for statement in statements {
+        match statement {
+            IrStatement::Let { value, .. } | IrStatement::Assign { value, .. }
+            | IrStatement::Push { value, .. } | IrStatement::Print(value) | IrStatement::Return(value) => fold_expression(value),
+            IrStatement::IndexAssign { index, value, .. } => { fold_expression(index); fold_expression(value); }
+            IrStatement::Match { value, arms } => {
+                fold_expression(value);
+                for arm in arms { fold_statements(&mut arm.body); }
+            }
+            IrStatement::If { condition, then_body, else_body } => {
+                fold_expression(condition);
+                fold_statements(then_body);
+                if let Some(body) = else_body { fold_statements(body); }
+            }
+            IrStatement::While { condition, body } => { fold_expression(condition); fold_statements(body); }
+            IrStatement::ForRange { start, end, body, .. } => {
+                fold_expression(start); fold_expression(end); fold_statements(body);
+            }
+            IrStatement::ForEach { iterable, body, .. } => { fold_expression(iterable); fold_statements(body); }
+            IrStatement::Break | IrStatement::Continue => {}
+        }
+    }
+}
+
+fn fold_constants(program: &mut IrProgram) {
+    for function in &mut program.functions {
+        fold_statements(&mut function.body);
+    }
+}
+
+fn lower_program(functions: &[Function]) -> IrProgram {
+    let mut program = IrProgram {
         functions: functions.iter().map(|function| IrFunction {
             name: function.name.clone(),
             type_parameters: function.type_params.clone(),
@@ -177,7 +323,9 @@ pub(crate) fn lower_program(functions: &[Function]) -> IrProgram {
             return_type: function.return_type.clone(),
             body: lower_statements(&function.body),
         }).collect(),
-    }
+    };
+    fold_constants(&mut program);
+    program
 }
 
 

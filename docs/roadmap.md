@@ -34,7 +34,8 @@ This roadmap describes intended work, not completed features.
 - [ ] Full operator overloading
 - [x] Typed expression closures with value capture
 - [ ] Block closures, mutable captures, and closure escape analysis
-- [ ] Advanced compile-time evaluation
+- [x] Constant-fold literal arithmetic, comparisons, boolean/bitwise expressions, and string concatenation in IR
+- [ ] Compile-time functions, const evaluation, and compile-time diagnostics
 - [ ] Complete collection library and custom collection types
 - [ ] Explicit ownership and borrowing of collections
 - [ ] Array bounds safety and explicit collection semantics
