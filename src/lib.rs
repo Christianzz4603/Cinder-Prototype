@@ -1713,7 +1713,7 @@ mod tests {
         )
         .unwrap();
         assert!(cpp.contains("cinder_contains(name, std::string(\"in\"))"));
-        assert!(cpp.contains("std::string(\"Hello, \") + name"));
+        assert!(cpp.contains("cinder_add(std::string(\"Hello, \"), name)"));
     }
 
     #[test]
@@ -1775,7 +1775,7 @@ multiline \n text""")
     print(len(combined))
 }"#).unwrap();
         assert!(cpp.contains("cinder_add(left, right)"));
-        assert!(crate::compile_to_cpp("fn main() { let values = [1, 2]\n print(values + [\\"x\\"]) }").is_err());
+        assert!(crate::compile_to_cpp("fn main() { let values = [1, 2]\n print(values + [\"x\"]) }").is_err());
     }
 
     #[test]
