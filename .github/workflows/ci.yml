@@ -37,7 +37,7 @@ jobs:
           /tmp/cinder-variables
           /tmp/cinder-control_flow
           test "$(/tmp/cinder-for_loops)" = "10"
-          test "$(/tmp/cinder-arrays | paste -sd, -)" = "20,3"
+          test "$(/tmp/cinder-arrays | paste -sd, -)" = "20,4"
           test "$(/tmp/cinder-loops | tail -n 1)" = "55"
           test "$(/tmp/cinder-functions | tail -n 2 | head -n 1)" = "144"
           test "$(/tmp/cinder-functions | tail -n 1)" = "120"
