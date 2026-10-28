@@ -8,7 +8,7 @@ The compiler is written in Rust. It parses Cinder, runs an initial semantic/type
 
 ## Implemented features
 
-- Typed functions, parameters, return types, recursion, forward calls, and parameter-type-based function overloading, and inferred generic functions
+- Typed functions, parameters, return types, recursion, forward calls, parameter-type-based function overloading, inferred generic functions, and typed expression closures with value capture
 - Immutable `let` bindings and mutable `var` bindings
 - Primitive types: `i32`, `i64`, `u32`, `u64`, `f32`, `f64`, `bool`, `String`, and `str` as an alias for String
 - Decimal floating-point literals and hexadecimal, binary, and octal integers

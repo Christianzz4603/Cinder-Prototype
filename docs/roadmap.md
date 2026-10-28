@@ -32,7 +32,8 @@ This roadmap describes intended work, not completed features.
 - [ ] Generic constraints, bounds, and specialization
 - [x] Function overloading by parameter types
 - [ ] Full operator overloading
-- [ ] Closures and lambdas
+- [x] Typed expression closures with value capture
+- [ ] Block closures, mutable captures, and closure escape analysis
 - [ ] Advanced compile-time evaluation
 - [ ] Complete collection library and custom collection types
 - [ ] Explicit ownership and borrowing of collections

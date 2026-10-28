@@ -195,6 +195,7 @@ enum Expr {
     Bool(bool),
     Name(String),
     Call { name: String, args: Vec<Expr> },
+    Lambda { params: Vec<(String, String)>, body: Box<Expr> },
     Array(Vec<Expr>),
     Index { value: Box<Expr>, index: Box<Expr> },
     Unary { op: Kind, value: Box<Expr> },
@@ -317,6 +318,23 @@ impl Parser {
             Kind::Number(n) => Ok(Expr::Number(n)),
             Kind::Ident(s) if s == "true" => Ok(Expr::Bool(true)),
             Kind::Ident(s) if s == "false" => Ok(Expr::Bool(false)),
+            Kind::Ident(s) if s == "fn" => {
+                self.expect(Kind::LParen, "'(' after fn in a lambda")?;
+                let mut params = Vec::new();
+                if !matches!(&self.current().kind, Kind::RParen) {
+                    loop {
+                        let name = self.take_name("a lambda parameter")?;
+                        self.expect(Kind::Colon, "':' after lambda parameter name")?;
+                        let ty = self.parse_type("a lambda parameter type")?;
+                        params.push((name, ty));
+                        if matches!(&self.current().kind, Kind::Comma) { self.advance(); } else { break; }
+                    }
+                }
+                self.expect(Kind::RParen, "')' after lambda parameters")?;
+                self.expect(Kind::FatArrow, "'=>' before lambda expression")?;
+                let body = self.expression()?;
+                Ok(Expr::Lambda { params, body: Box::new(body) })
+            }
             Kind::Ident(s) if matches!(&self.current().kind, Kind::LParen) => {
                 self.advance();
                 let mut args = Vec::new();
@@ -654,6 +672,10 @@ fn cpp_number(number: &str) -> String {
 fn cpp_expr(expr: &Expr) -> String {
     match expr {
         Expr::Text(s) => format!("std::string({})", cpp_string(s)),
+        Expr::Lambda { params, body } => {
+            let parameters = params.iter().map(|(name, ty)| format!("{} {}", cpp_type(ty), name)).collect::<Vec<_>>().join(", ");
+            format!("[=]({parameters}) {{ return {}; }}", cpp_expr(body))
+        }
         Expr::Array(items) => format!("std::vector{{{}}}", items.iter().map(cpp_expr).collect::<Vec<_>>().join(", ")),
         Expr::Index { value, index } => format!("{}.at({})", cpp_expr(value), cpp_expr(index)),
         Expr::Number(n) => cpp_number(n),
@@ -855,6 +877,17 @@ fn substitute_generic_type(ty: &str, substitutions: &std::collections::HashMap<S
     ty.to_string()
 }
 
+fn parse_function_type(ty: &str) -> Option<(Vec<String>, String)> {
+    let signature = ty.strip_prefix("Fn(")?;
+    let (params, return_type) = signature.split_once(")->")?;
+    let params = if params.is_empty() {
+        Vec::new()
+    } else {
+        params.split(',').map(str::to_string).collect()
+    };
+    Some((params, return_type.to_string()))
+}
+
 fn infer_expr_type(
     expr: &Expr,
     scopes: &TypeScopes,
@@ -862,6 +895,16 @@ fn infer_expr_type(
 ) -> Result<String, String> {
     match expr {
         Expr::Text(_) => Ok("String".into()),
+        Expr::Lambda { params, body } => {
+            let mut lambda_scopes = scopes.clone();
+            lambda_scopes.push(std::collections::HashMap::new());
+            for (name, ty) in params {
+                lambda_scopes.last_mut().expect("lambda scope exists").insert(name.clone(), (ty.clone(), false));
+            }
+            let return_type = infer_expr_type(body, &lambda_scopes, signatures)?;
+            let parameter_types = params.iter().map(|(_, ty)| ty.clone()).collect::<Vec<_>>().join(",");
+            Ok(format!("Fn({parameter_types})->{return_type}"))
+        }
         Expr::Array(items) => {
             if items.is_empty() { return Err("cannot infer the element type of an empty array; add at least one element".into()); }
             let first = infer_expr_type(&items[0], scopes, signatures)?;
@@ -1003,7 +1046,23 @@ fn infer_expr_type(
                     Ok(arg_types[0].clone())
                 }
                 _ => {
-                    let candidates = signatures.get(name).ok_or_else(|| format!("unknown function '{name}'"))?;
+                    let Some(candidates) = signatures.get(name) else {
+                        let Some((callee_ty, _)) = lookup_variable(scopes, name) else {
+                            return Err(format!("unknown function '{name}'"));
+                        };
+                        let Some((params, return_type)) = parse_function_type(&callee_ty) else {
+                            return Err(format!("'{name}' is not callable (type {callee_ty})"));
+                        };
+                        if params.len() != arg_types.len() {
+                            return Err(format!("closure '{name}' expects {} argument(s), got {}", params.len(), arg_types.len()));
+                        }
+                        for (index, (actual, expected)) in arg_types.iter().zip(&params).enumerate() {
+                            if !compatible_type(actual, expected, &args[index]) {
+                                return Err(format!("argument {} to closure '{name}' expects {expected}, got {actual}", index + 1));
+                            }
+                        }
+                        return Ok(return_type);
+                    };
                     if candidates.iter().all(|signature| signature.params.len() != arg_types.len()) {
                         let mut counts: Vec<usize> = candidates.iter().map(|signature| signature.params.len()).collect();
                         counts.sort_unstable();
@@ -1229,13 +1288,15 @@ fn validate_expr_calls(expr: &Expr, signatures: &std::collections::HashMap<Strin
         Expr::Call { name, args } => {
             let builtin = matches!(name.as_str(), "input" | "len" | "is_empty" | "capacity" | "first" | "last" | "pop" | "remove_at" | "clear" | "reserve" | "abs" | "sqrt" | "floor" | "ceil" | "round" | "to_string" | "parse_int" | "is_even" | "is_odd" | "sign" | "min" | "max" | "pow" | "contains" | "starts_with" | "ends_with" | "clamp");
             if !builtin {
-                let expected = signatures.get(name).ok_or_else(|| format!("unknown function '{name}'"))?;
-                if !expected.contains(&args.len()) {
-                    return Err(format!("no overload of '{name}' accepts {} argument(s)", args.len()));
+                if let Some(expected) = signatures.get(name) {
+                    if !expected.contains(&args.len()) {
+                        return Err(format!("no overload of '{name}' accepts {} argument(s)", args.len()));
+                    }
                 }
             }
             for arg in args { validate_expr_calls(arg, signatures)?; }
         }
+        Expr::Lambda { body, .. } => validate_expr_calls(body, signatures)?
         Expr::Unary { value, .. } => validate_expr_calls(value, signatures)?,
         Expr::Array(items) => { for item in items { validate_expr_calls(item, signatures)?; } }
         Expr::Index { value, index } => { validate_expr_calls(value, signatures)?; validate_expr_calls(index, signatures)?; }
@@ -1683,6 +1744,21 @@ multiline \n text""")
         assert!(crate::compile_to_cpp("fn main() { print(first(12)) }").unwrap_err().contains("expects an Array"));
         assert!(crate::compile_to_cpp("fn main() { print(contains([1, 2], \"x\")) }").is_err());
 
+
+    #[test]
+    fn supports_typed_closures_and_value_captures() {
+        let cpp = crate::compile_to_cpp(r#"fn main() {
+    let offset: i64 = 5
+    let add = fn(x: i64) => x + offset
+    let double = fn(x: i64) => x * 2
+    print(add(3))
+    print(double(4))
+}"#).unwrap();
+        assert!(cpp.contains("[=](std::int64_t x) { return (x + offset); }"));
+        assert!(cpp.contains("add(3)"));
+        assert!(cpp.contains("double(4)"));
+        assert!(crate::compile_to_cpp("fn main() { let value = 3\n print(value(1)) }").unwrap_err().contains("not callable"));
+    }
     #[test]
     fn clears_and_reserves_mutable_arrays() {
         let cpp = crate::compile_to_cpp(r#"fn main() {

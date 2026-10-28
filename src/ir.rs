@@ -58,6 +58,7 @@ pub enum IrExpression {
     Bool(bool),
     Variable(String),
     Call { name: String, arguments: Vec<IrExpression> },
+    Lambda { parameters: Vec<IrParameter>, body: Box<IrExpression> },
     Array(Vec<IrExpression>),
     Index { value: Box<IrExpression>, index: Box<IrExpression> },
     Unary { operator: String, value: Box<IrExpression> },
@@ -73,6 +74,10 @@ fn lower_expr(expr: &Expr) -> IrExpression {
         Expr::Call { name, args } => IrExpression::Call {
             name: name.clone(),
             arguments: args.iter().map(lower_expr).collect(),
+        },
+        Expr::Lambda { params, body } => IrExpression::Lambda {
+            parameters: params.iter().map(|(name, ty)| IrParameter { name: name.clone(), ty: ty.clone() }).collect(),
+            body: Box::new(lower_expr(body)),
         },
         Expr::Array(items) => IrExpression::Array(items.iter().map(lower_expr).collect()),
         Expr::Index { value, index } => IrExpression::Index {
@@ -231,6 +236,10 @@ fn cpp_expr(expr: &IrExpression) -> String {
         IrExpression::Number(n) => cpp_number(n),
         IrExpression::Bool(b) => b.to_string(),
         IrExpression::Variable(n) => n.clone(),
+        IrExpression::Lambda { parameters, body } => {
+            let params = parameters.iter().map(|p| format!("{} {}", cpp_type(&p.ty), p.name)).collect::<Vec<_>>().join(", ");
+            format!("[=]({params}) {{ return {}; }}", cpp_expr(body))
+        }
         IrExpression::Call { name, arguments } => {
             let values: Vec<String> = arguments.iter().map(cpp_expr).collect();
             match name.as_str() {
