@@ -1,3 +1,5 @@
+pub mod ir;
+
 use std::fmt::Write as _;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -930,9 +932,8 @@ fn validate_function_calls(statements: &[Stmt], signatures: &std::collections::H
     Ok(())
 }
 
-/// Parse the current Cinder subset and emit C++ for native compilation.
-/// This bootstrap does not yet perform static type checking.
-pub fn compile_to_cpp(source: &str) -> Result<String, String> {
+/// Parse and semantically check Cinder source, then lower it to the backend-independent IR.
+pub fn compile_to_ir(source: &str) -> Result<ir::IrProgram, String> {
     let tokens = lex(source)?;
     let mut parser = Parser { tokens, at: 0 };
     let functions = parser.program()?;
@@ -942,6 +943,18 @@ pub fn compile_to_cpp(source: &str) -> Result<String, String> {
     for function in &functions {
         validate_function_calls(&function.body, &signatures, 0)?;
     }
+    Ok(ir::lower_program(&functions))
+}
+
+/// Parse the current Cinder subset and emit C++ for native compilation.
+pub fn compile_to_cpp(source: &str) -> Result<String, String> {
+    let ir = compile_to_ir(source)?;
+    // The existing C++ backend still uses the parsed syntax tree. Lowering here
+    // keeps the IR in the validated compiler pipeline while backend migration proceeds.
+    let _ir = ir;
+    let tokens = lex(source)?;
+    let mut parser = Parser { tokens, at: 0 };
+    let functions = parser.program()?;
     let mut cpp = String::from(
         "#include <algorithm>\n#include <cmath>\n#include <cstdint>\n#include <iostream>\n#include <stdexcept>\n#include <string>\n#include <type_traits>\n#include <vector>\n\n"
     );
@@ -1373,5 +1386,33 @@ mod tests {
         assert!(cpp.contains("std::sqrt(81)"));
         assert!(cpp.contains("cinder_input(std::string(\"Name? \"))"));
         assert!(cpp.contains("cinder_to_string(n)"));
+    }
+}
+
+#[cfg(test)]
+mod ir_tests {
+    use super::{compile_to_ir, ir::{IrExpression, IrStatement}};
+
+    #[test]
+    fn lowers_functions_and_typed_parameters_to_ir() {
+        let program = compile_to_ir("fn twice(value: i64) -> i64 { return value * 2 }\nfn main() { print(twice(4)) }").unwrap();
+        assert_eq!(program.functions.len(), 2);
+        assert_eq!(program.functions[0].name, "twice");
+        assert_eq!(program.functions[0].parameters[0].ty, "i64");
+        assert_eq!(program.functions[0].return_type, "i64");
+        assert!(matches!(&program.functions[0].body[0], IrStatement::Return(IrExpression::Binary { operator, .. }) if operator == "*"));
+    }
+
+    #[test]
+    fn lowers_arrays_and_control_flow_to_ir() {
+        let program = compile_to_ir("fn main() { var values = [1, 2]\n push(values, 3)\n if true { print(values[0]) } else { print(0) } }").unwrap();
+        assert!(matches!(&program.functions[0].body[0], IrStatement::Let { value: IrExpression::Array(items), mutable: true, .. } if items.len() == 2));
+        assert!(matches!(&program.functions[0].body[1], IrStatement::Push { .. }));
+        assert!(matches!(&program.functions[0].body[2], IrStatement::If { else_body: Some(_), .. }));
+    }
+
+    #[test]
+    fn ir_lowering_keeps_semantic_errors_rejected() {
+        assert!(compile_to_ir("fn main() { print(missing_name) }").is_err());
     }
 }

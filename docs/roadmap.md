@@ -25,7 +25,8 @@ This roadmap describes intended work, not completed features.
 - [x] Basic return-path analysis for non-main functions
 - [ ] Structs, enums, and field access
 - [ ] Array bounds safety and explicit collection semantics
-- [ ] Cinder-specific intermediate representation
+- [x] Initial backend-independent structural IR and AST lowering
+- [ ] IR-based backend and typed/SSA IR
 - [ ] Parser fuzz tests and golden diagnostics
 
 ## Milestone 0.3: Memory and safety model
