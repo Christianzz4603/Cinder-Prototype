@@ -846,7 +846,7 @@ mod tests {
             }
             print(total)
         }"#).unwrap();
-        assert!(cpp.contains("for (const std::int64_t i = 0; i < 5; ++i)"));
+        assert!(cpp.contains("for (std::int64_t i = 0; i < 5; ++i)"));
         assert!(cpp.contains("total = (total + i);"));
     }
 
