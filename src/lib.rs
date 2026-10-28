@@ -1296,7 +1296,7 @@ fn validate_expr_calls(expr: &Expr, signatures: &std::collections::HashMap<Strin
             }
             for arg in args { validate_expr_calls(arg, signatures)?; }
         }
-        Expr::Lambda { body, .. } => validate_expr_calls(body, signatures)?
+        Expr::Lambda { body, .. } => validate_expr_calls(body, signatures)?,
         Expr::Unary { value, .. } => validate_expr_calls(value, signatures)?,
         Expr::Array(items) => { for item in items { validate_expr_calls(item, signatures)?; } }
         Expr::Index { value, index } => { validate_expr_calls(value, signatures)?; validate_expr_calls(index, signatures)?; }
