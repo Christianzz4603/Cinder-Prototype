@@ -7,7 +7,7 @@ enum Kind {
     Number(String),
     LParen, RParen, LBrace, RBrace, Colon, Comma, Equal, Arrow,
     Plus, Minus, Star, Slash, Percent, Bang,
-    Less, LessEqual, Greater, GreaterEqual, EqualEqual, BangEqual,
+    Less, LessEqual, Greater, GreaterEqual, EqualEqual, BangEqual, DotDot,
     AndAnd, OrOr, Newline, Eof,
 }
 
@@ -32,6 +32,7 @@ fn lex(source: &str) -> Result<Vec<Token>, String> {
             '{' => { i += 1; Kind::LBrace }
             '}' => { i += 1; Kind::RBrace }
             ':' => { i += 1; Kind::Colon }
+            '.' if chars.get(i + 1) == Some(&'.') => { i += 2; Kind::DotDot }
             ',' => { i += 1; Kind::Comma }
             '+' => { i += 1; Kind::Plus }
             '-' if chars.get(i + 1) == Some(&'>') => { i += 2; Kind::Arrow },
@@ -105,7 +106,7 @@ enum Expr {
 }
 
 #[derive(Debug)]
-enum Stmt { Let { name: String, declared_type: Option<String>, mutable: bool, value: Expr }, Assign { name: String, value: Expr }, Print(Expr), Return(Expr), Break, Continue, If { condition: Expr, then_branch: Vec<Stmt>, else_branch: Option<Vec<Stmt>> }, While { condition: Expr, body: Vec<Stmt> } }
+enum Stmt { Let { name: String, declared_type: Option<String>, mutable: bool, value: Expr }, Assign { name: String, value: Expr }, Print(Expr), Return(Expr), Break, Continue, If { condition: Expr, then_branch: Vec<Stmt>, else_branch: Option<Vec<Stmt>> }, While { condition: Expr, body: Vec<Stmt> }, ForRange { name: String, start: Expr, end: Expr, body: Vec<Stmt> }
 
 #[derive(Debug)]
 struct Function { name: String, params: Vec<(String, String)>, return_type: String, body: Vec<Stmt> }
@@ -257,6 +258,16 @@ impl Parser {
                 self.advance();
                 self.expect(Kind::Equal, "'=' in assignment")?;
                 Ok(Stmt::Assign { name, value: self.expression()? })
+            }
+            Kind::Ident(word) if word == "for" => {
+                self.advance();
+                let name = self.take_name("a loop variable")?;
+                self.expect_word("in")?;
+                let start = self.expression()?;
+                self.expect(Kind::DotDot, "'..' in range loop")?;
+                let end = self.expression()?;
+                let body = self.block()?;
+                Ok(Stmt::ForRange { name, start, end, body })
             }
             Kind::Ident(word) if word == "while" => {
                 self.advance();
@@ -422,6 +433,11 @@ fn emit_statements(statements: &[Stmt], cpp: &mut String, indent: usize) {
             }
             Stmt::While { condition, body } => {
                 writeln!(cpp, "{pad}while ({}) {{", cpp_expr(condition)).unwrap();
+                emit_statements(body, cpp, indent + 1);
+                writeln!(cpp, "{pad}}}").unwrap();
+            }
+            Stmt::ForRange { name, start, end, body } => {
+                writeln!(cpp, "{pad}for (const std::int64_t {name} = {}; {name} < {}; ++{name}) {{", cpp_expr(start), cpp_expr(end)).unwrap();
                 emit_statements(body, cpp, indent + 1);
                 writeln!(cpp, "{pad}}}").unwrap();
             }
@@ -628,6 +644,18 @@ fn check_statements(
                 scopes.pop();
                 result?;
             }
+            Stmt::ForRange { name, start, end, body } => {
+                let start_ty = infer_expr_type(start, scopes, signatures)?;
+                let end_ty = infer_expr_type(end, scopes, signatures)?;
+                if !is_integer(&start_ty) || !is_integer(&end_ty) {
+                    return Err(format!("range loop bounds must be integers, got {start_ty} and {end_ty}"));
+                }
+                scopes.push(std::collections::HashMap::new());
+                scopes.last_mut().expect("scope exists").insert(name.clone(), ("i64".to_string(), false));
+                let result = check_statements(body, scopes, signatures, expected_return, loop_depth + 1);
+                scopes.pop();
+                result?;
+            }
         }
     }
     Ok(())
@@ -687,6 +715,11 @@ fn validate_function_calls(statements: &[Stmt], signatures: &std::collections::H
             }
             Stmt::While { condition, body } => {
                 validate_expr_calls(condition, signatures)?;
+                validate_function_calls(body, signatures, loop_depth + 1)?;
+            }
+            Stmt::ForRange { start, end, body, .. } => {
+                validate_expr_calls(start, signatures)?;
+                validate_expr_calls(end, signatures)?;
                 validate_function_calls(body, signatures, loop_depth + 1)?;
             }
         }
@@ -802,6 +835,25 @@ mod tests {
         assert!(cpp.contains("while ((i <= 5))"));
         assert!(cpp.contains("total = (total + i);"));
         assert!(cpp.contains("i = (i + 1);"));
+    }
+
+    #[test]
+    fn compiles_exclusive_range_for_loops() {
+        let cpp = compile_to_cpp(r#"fn main() {
+            var total: i64 = 0
+            for i in 0..5 {
+                total = total + i
+            }
+            print(total)
+        }"#).unwrap();
+        assert!(cpp.contains("for (const std::int64_t i = 0; i < 5; ++i)"));
+        assert!(cpp.contains("total = (total + i);"));
+    }
+
+    #[test]
+    fn rejects_invalid_range_bounds_and_immutable_loop_variable_assignment() {
+        assert!(compile_to_cpp(r#"fn main() { for i in "x"..5 { print(i) } }"#).unwrap_err().contains("range loop bounds must be integers"));
+        assert!(compile_to_cpp("fn main() { for i in 0..5 { i = 2 } }").unwrap_err().contains("immutable variable 'i'"));
     }
 
     #[test]

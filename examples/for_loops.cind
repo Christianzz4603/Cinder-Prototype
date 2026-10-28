@@ -1,0 +1,7 @@
+fn main() {
+    var total: i64 = 0
+    for i in 0..5 {
+        total = total + i
+    }
+    print(total)
+}

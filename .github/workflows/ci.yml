@@ -36,6 +36,7 @@ jobs:
           test "$(/tmp/cinder-hello | head -n 1)" = "Hello from Cinder!"
           /tmp/cinder-variables
           /tmp/cinder-control_flow
+          test "$(/tmp/cinder-for_loops)" = "10"
           test "$(/tmp/cinder-loops | tail -n 1)" = "55"
           test "$(/tmp/cinder-functions | tail -n 2 | head -n 1)" = "144"
           test "$(/tmp/cinder-functions | tail -n 1)" = "120"
