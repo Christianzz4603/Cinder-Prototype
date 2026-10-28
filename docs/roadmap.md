@@ -22,7 +22,7 @@ This roadmap describes intended work, not completed features.
 - [x] Array<T> type annotations, including function parameters
 - [x] User-defined functions and parameters
 - [x] Initial static type checker for variables, assignments, calls, operators, and boolean conditions
-- [ ] Complete conversion rules and return-path analysis
+- [x] Basic return-path analysis for non-main functions
 - [ ] Structs, enums, and field access
 - [ ] Array bounds safety and explicit collection semantics
 - [ ] Cinder-specific intermediate representation

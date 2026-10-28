@@ -840,6 +840,21 @@ fn check_statements(
     Ok(())
 }
 
+fn block_definitely_returns(statements: &[Stmt]) -> bool {
+    statements.iter().any(|stmt| match stmt {
+        Stmt::Return(_) => true,
+        Stmt::If { then_branch, else_branch: Some(else_branch), .. } => {
+            block_definitely_returns(then_branch) && block_definitely_returns(else_branch)
+        }
+        _ => false,
+    }) || statements.last().is_some_and(|stmt| match stmt {
+        Stmt::If { then_branch, else_branch: Some(else_branch), .. } => {
+            block_definitely_returns(then_branch) && block_definitely_returns(else_branch)
+        }
+        _ => false,
+    })
+}
+
 fn type_check_program(functions: &[Function]) -> Result<(), String> {
     let signatures: std::collections::HashMap<String, FunctionSignature> = functions.iter().map(|function| {
         (function.name.clone(), FunctionSignature {
@@ -854,6 +869,12 @@ fn type_check_program(functions: &[Function]) -> Result<(), String> {
         }
         check_statements(&function.body, &mut scopes, &signatures, &function.return_type, 0)
             .map_err(|error| format!("in function '{}': {error}", function.name))?;
+        if function.name != "main" && !block_definitely_returns(&function.body) {
+            return Err(format!(
+                "in function '{}': not every control-flow path returns {}",
+                function.name, function.return_type
+            ));
+        }
     }
     Ok(())
 }
@@ -1255,6 +1276,16 @@ mod tests {
         assert!(cpp.contains("std::int64_t add(std::int64_t a, std::int64_t b);"));
         assert!(cpp.contains("return (a + b);"));
         assert!(cpp.contains("std::cout << add(20, 22)"));
+    }
+
+    #[test]
+    fn requires_non_main_functions_to_return_on_every_path() {
+        assert!(compile_to_cpp("fn main() { print(value()) } fn value() -> i64 { let x = 1 }")
+            .unwrap_err().contains("not every control-flow path returns i64"));
+        assert!(compile_to_cpp("fn main() { print(value()) } fn value() -> i64 { if true { return 1 } else { return 2 } }")
+            .is_ok());
+        assert!(compile_to_cpp("fn main() { print(value()) } fn value() -> i64 { if true { return 1 } }")
+            .unwrap_err().contains("not every control-flow path returns i64"));
     }
 
     #[test]
