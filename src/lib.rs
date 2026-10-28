@@ -110,7 +110,7 @@ enum Expr {
 }
 
 #[derive(Debug)]
-enum Stmt { Let { name: String, declared_type: Option<String>, mutable: bool, value: Expr }, Assign { name: String, value: Expr }, IndexAssign { name: String, index: Expr, value: Expr }, Push { name: String, value: Expr }, Print(Expr), Return(Expr), Break, Continue, If { condition: Expr, then_branch: Vec<Stmt>, else_branch: Option<Vec<Stmt>> }, While { condition: Expr, body: Vec<Stmt> }, ForRange { name: String, start: Expr, end: Expr, body: Vec<Stmt> } }
+enum Stmt { Let { name: String, declared_type: Option<String>, mutable: bool, value: Expr }, Assign { name: String, value: Expr }, IndexAssign { name: String, index: Expr, value: Expr }, Push { name: String, value: Expr }, Print(Expr), Return(Expr), Break, Continue, If { condition: Expr, then_branch: Vec<Stmt>, else_branch: Option<Vec<Stmt>> }, While { condition: Expr, body: Vec<Stmt> }, ForRange { name: String, start: Expr, end: Expr, body: Vec<Stmt> }, ForEach { name: String, iterable: Expr, body: Vec<Stmt> } }
 
 #[derive(Debug)]
 struct Function { name: String, params: Vec<(String, String)>, return_type: String, body: Vec<Stmt> }
@@ -308,10 +308,15 @@ impl Parser {
                 let name = self.take_name("a loop variable")?;
                 self.expect_word("in")?;
                 let start = self.expression()?;
-                self.expect(Kind::DotDot, "'..' in range loop")?;
-                let end = self.expression()?;
-                let body = self.block()?;
-                Ok(Stmt::ForRange { name, start, end, body })
+                if matches!(&self.current().kind, Kind::DotDot) {
+                    self.advance();
+                    let end = self.expression()?;
+                    let body = self.block()?;
+                    Ok(Stmt::ForRange { name, start, end, body })
+                } else {
+                    let body = self.block()?;
+                    Ok(Stmt::ForEach { name, iterable: start, body })
+                }
             }
             Kind::Ident(word) if word == "while" => {
                 self.advance();
@@ -486,6 +491,11 @@ fn emit_statements(statements: &[Stmt], cpp: &mut String, indent: usize) {
             }
             Stmt::ForRange { name, start, end, body } => {
                 writeln!(cpp, "{pad}for (std::int64_t {name} = {}; {name} < {}; ++{name}) {{", cpp_expr(start), cpp_expr(end)).unwrap();
+                emit_statements(body, cpp, indent + 1);
+                writeln!(cpp, "{pad}}}").unwrap();
+            }
+            Stmt::ForEach { name, iterable, body } => {
+                writeln!(cpp, "{pad}for (const auto& {name} : {}) {{", cpp_expr(iterable)).unwrap();
                 emit_statements(body, cpp, indent + 1);
                 writeln!(cpp, "{pad}}}").unwrap();
             }
@@ -738,6 +748,16 @@ fn check_statements(
                 scopes.pop();
                 result?;
             }
+            Stmt::ForEach { name, iterable, body } => {
+                let iterable_ty = infer_expr_type(iterable, scopes, signatures)?;
+                let element_ty = iterable_ty.strip_prefix("Array<").and_then(|ty| ty.strip_suffix(">"))
+                    .ok_or_else(|| format!("for-each loop requires an Array, got {iterable_ty}"))?;
+                scopes.push(std::collections::HashMap::new());
+                scopes.last_mut().expect("scope exists").insert(name.clone(), (element_ty.to_string(), false));
+                let result = check_statements(body, scopes, signatures, expected_return, loop_depth + 1);
+                scopes.pop();
+                result?;
+            }
         }
     }
     Ok(())
@@ -801,6 +821,10 @@ fn validate_function_calls(statements: &[Stmt], signatures: &std::collections::H
             Stmt::ForRange { start, end, body, .. } => {
                 validate_expr_calls(start, signatures)?;
                 validate_expr_calls(end, signatures)?;
+                validate_function_calls(body, signatures, loop_depth + 1)?;
+            }
+            Stmt::ForEach { iterable, body, .. } => {
+                validate_expr_calls(iterable, signatures)?;
                 validate_function_calls(body, signatures, loop_depth + 1)?;
             }
         }
@@ -990,6 +1014,24 @@ mod tests {
             let values = [1, 2]
             print(values[true])
         }"#).unwrap_err().contains("array index must be an integer"));
+    }
+
+    #[test]
+    fn iterates_over_arrays_with_for_each() {
+        let cpp = compile_to_cpp(r#"fn main() {
+            let values = [2, 4, 6]
+            var total: i64 = 0
+            for value in values {
+                total = total + value
+            }
+            print(total)
+        }"#).unwrap();
+        assert!(cpp.contains("for (const auto& value : values)"));
+    }
+
+    #[test]
+    fn rejects_for_each_over_non_arrays() {
+        assert!(compile_to_cpp("fn main() { for value in 123 { print(value) } }").unwrap_err().contains("for-each loop requires an Array"));
     }
 
     #[test]
