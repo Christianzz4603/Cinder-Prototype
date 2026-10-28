@@ -12,11 +12,12 @@ The compiler is written in Rust and translates the initial Cinder syntax subset 
 
 Currently supported:
 - `fn main() { ... }`
-- `let` and `var` declarations with optional type annotations
+- `let` and `var` declarations with optional type annotations, including `str` as an alias for `String`
 - string, integer, boolean, and variable expressions
 - `print(expression)`
 - Built-in utility functions: `len`, `abs`, `min`, `max`, `clamp`, `sqrt`, `pow`, `floor`, `ceil`, `round`, `to_string`, `parse_int`, `input`, `contains`, `starts_with`, `ends_with`, `is_even`, `is_odd`, and `sign`
 - `return expression`
+- `break` and `continue` inside `while` loops, rejected outside loops
 - `if condition { ... }` and optional `else { ... }` blocks, including nesting
 - Arithmetic, comparison, equality, logical, unary, and grouped expressions
 - `//` comments and common string escapes

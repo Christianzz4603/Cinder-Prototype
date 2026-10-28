@@ -10,11 +10,13 @@ This roadmap describes intended work, not completed features.
 - [x] Syntax checks and automated tests
 - [x] Arithmetic, comparison, equality, and logical expressions
 - [ ] Better diagnostics and source spans
+- [x] Accept `str` as an alias for `String`
 
 ## Milestone 0.2: A real language core
 - [x] Expression grammar and operator precedence
 - [x] if and else blocks, including nested conditionals
-- [x] Initial built-in utility and math functions\n- [ ] while and for loops
+- [x] Initial built-in utility and math functions\n- [x] while loops, `break`, and `continue`
+- [ ] for loops
 - [ ] User-defined functions and parameters
 - [ ] Static type checker with explicit conversion rules
 - [ ] Cinder-specific intermediate representation
@@ -36,6 +38,7 @@ This roadmap describes intended work, not completed features.
 - [ ] Add allocation-aware strings and explicit error handling for runtime conversions
 - [x] Add typed user-defined functions, recursion, and forward-call support
 - [x] Add `while` loops and variable assignment
+- [x] Add `break` and `continue` with loop-context validation
 - [ ] Add `for` loops, `break`, and `continue` before engine-scale examples
 
 ## Milestone 0.4: Native backend

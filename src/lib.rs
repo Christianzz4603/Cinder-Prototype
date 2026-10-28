@@ -105,7 +105,7 @@ enum Expr {
 }
 
 #[derive(Debug)]
-enum Stmt { Let { name: String, value: Expr }, Assign { name: String, value: Expr }, Print(Expr), Return(Expr), If { condition: Expr, then_branch: Vec<Stmt>, else_branch: Option<Vec<Stmt>> }, While { condition: Expr, body: Vec<Stmt> } }
+enum Stmt { Let { name: String, value: Expr }, Assign { name: String, value: Expr }, Print(Expr), Return(Expr), Break, Continue, If { condition: Expr, then_branch: Vec<Stmt>, else_branch: Option<Vec<Stmt>> }, While { condition: Expr, body: Vec<Stmt> } }
 
 #[derive(Debug)]
 struct Function { name: String, params: Vec<(String, String)>, return_type: String, body: Vec<Stmt> }
@@ -134,7 +134,7 @@ impl Parser {
     }
     fn take_name(&mut self, description: &str) -> Result<String, String> {
         match self.advance() {
-            Token { kind: Kind::Ident(name), line } if !matches!(name.as_str(), "fn" | "let" | "var" | "return" | "true" | "false") => Ok(name),
+            Token { kind: Kind::Ident(name), line } if !matches!(name.as_str(), "fn" | "let" | "var" | "return" | "break" | "continue" | "for" | "true" | "false") => Ok(name),
             token => Err(format!("line {}: expected {description}", token.line)),
         }
     }
@@ -245,6 +245,8 @@ impl Parser {
                 let value = self.expression()?; self.expect(Kind::RParen, "')' after print value")?; Ok(Stmt::Print(value))
             }
             Kind::Ident(word) if word == "return" => { self.advance(); Ok(Stmt::Return(self.expression()?)) }
+            Kind::Ident(word) if word == "break" => { self.advance(); Ok(Stmt::Break) }
+            Kind::Ident(word) if word == "continue" => { self.advance(); Ok(Stmt::Continue) }
             Kind::Ident(name) if matches!(self.tokens.get(self.at + 1).map(|token| &token.kind), Some(Kind::Equal)) => {
                 let name = name.clone();
                 self.advance();
@@ -270,6 +272,7 @@ impl Parser {
         let ty = self.take_name(description)?;
         match ty.as_str() {
             "i32" | "i64" | "u32" | "u64" | "f32" | "f64" | "bool" | "String" => Ok(ty),
+            "str" => Ok("String".to_string()),
             _ => Err(format!("line {}: unsupported type '{ty}' (supported: i32, i64, u32, u64, f32, f64, bool, String)", self.current().line)),
         }
     }
@@ -397,6 +400,8 @@ fn emit_statements(statements: &[Stmt], cpp: &mut String, indent: usize) {
             Stmt::Assign { name, value } => { writeln!(cpp, "{pad}{name} = {};", cpp_expr(value)).unwrap(); }
             Stmt::Print(value) => { writeln!(cpp, "{pad}std::cout << {} << '\\n';", cpp_expr(value)).unwrap(); }
             Stmt::Return(value) => { writeln!(cpp, "{pad}return {};", cpp_expr(value)).unwrap(); }
+            Stmt::Break => { writeln!(cpp, "{pad}break;").unwrap(); }
+            Stmt::Continue => { writeln!(cpp, "{pad}continue;").unwrap(); }
             Stmt::If { condition, then_branch, else_branch } => {
                 writeln!(cpp, "{pad}if ({}) {{", cpp_expr(condition)).unwrap();
                 emit_statements(then_branch, cpp, indent + 1);
@@ -451,18 +456,21 @@ fn validate_expr_calls(expr: &Expr, signatures: &std::collections::HashMap<Strin
     Ok(())
 }
 
-fn validate_function_calls(statements: &[Stmt], signatures: &std::collections::HashMap<String, usize>) -> Result<(), String> {
+fn validate_function_calls(statements: &[Stmt], signatures: &std::collections::HashMap<String, usize>, loop_depth: usize) -> Result<(), String> {
     for stmt in statements {
         match stmt {
             Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Print(value) | Stmt::Return(value) => validate_expr_calls(value, signatures)?,
+            Stmt::Break if loop_depth == 0 => return Err("break used outside a loop".to_string()),
+            Stmt::Continue if loop_depth == 0 => return Err("continue used outside a loop".to_string()),
+            Stmt::Break | Stmt::Continue => {},
             Stmt::If { condition, then_branch, else_branch } => {
                 validate_expr_calls(condition, signatures)?;
-                validate_function_calls(then_branch, signatures)?;
-                if let Some(branch) = else_branch { validate_function_calls(branch, signatures)?; }
+                validate_function_calls(then_branch, signatures, loop_depth)?;
+                if let Some(branch) = else_branch { validate_function_calls(branch, signatures, loop_depth)?; }
             }
             Stmt::While { condition, body } => {
                 validate_expr_calls(condition, signatures)?;
-                validate_function_calls(body, signatures)?;
+                validate_function_calls(body, signatures, loop_depth + 1)?;
             }
         }
     }
@@ -478,7 +486,7 @@ pub fn compile_to_cpp(source: &str) -> Result<String, String> {
     let signatures: std::collections::HashMap<String, usize> = functions.iter()
         .map(|function| (function.name.clone(), function.params.len())).collect();
     for function in &functions {
-        validate_function_calls(&function.body, &signatures)?;
+        validate_function_calls(&function.body, &signatures, 0)?;
     }
     let mut cpp = String::from(
         "#include <algorithm>\n#include <cmath>\n#include <cstdint>\n#include <iostream>\n#include <stdexcept>\n#include <string>\n#include <type_traits>\n\n"
@@ -576,6 +584,29 @@ mod tests {
         assert!(cpp.contains("while ((i <= 5))"));
         assert!(cpp.contains("total = (total + i);"));
         assert!(cpp.contains("i = (i + 1);"));
+    }
+
+    #[test]
+    fn compiles_break_continue_and_accepts_str_alias() {
+        let cpp = compile_to_cpp(r#"fn main() {
+            let message: str = "Cinder"
+            var i: i64 = 0
+            while i < 10 {
+                i = i + 1
+                if i == 3 { continue }
+                if i == 6 { break }
+                print(message)
+            }
+        }"#).unwrap();
+        assert!(cpp.contains("std::string message = std::string(\"Cinder\");"));
+        assert!(cpp.contains("continue;"));
+        assert!(cpp.contains("break;"));
+    }
+
+    #[test]
+    fn rejects_break_and_continue_outside_loops() {
+        assert!(compile_to_cpp("fn main() { break }").unwrap_err().contains("break used outside a loop"));
+        assert!(compile_to_cpp("fn main() { continue }").unwrap_err().contains("continue used outside a loop"));
     }
 
     #[test]
