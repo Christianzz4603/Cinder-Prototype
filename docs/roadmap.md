@@ -17,10 +17,14 @@ This roadmap describes intended work, not completed features.
 - [x] if and else blocks, including nested conditionals
 - [x] Initial built-in utility and math functions
 - [x] while loops, `break`, and `continue`
-- [ ] for loops
+- [x] Range-based for loops and array for-each iteration
+- [x] Array literals, indexing, indexed mutation, push, and pop
+- [x] Array<T> type annotations, including function parameters
 - [x] User-defined functions and parameters
 - [x] Initial static type checker for variables, assignments, calls, operators, and boolean conditions
 - [ ] Complete conversion rules and return-path analysis
+- [ ] Structs, enums, and field access
+- [ ] Array bounds safety and explicit collection semantics
 - [ ] Cinder-specific intermediate representation
 - [ ] Parser fuzz tests and golden diagnostics
 
