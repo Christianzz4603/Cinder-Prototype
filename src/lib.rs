@@ -5,7 +5,7 @@ enum Kind {
     Ident(String),
     String(String),
     Number(String),
-    LParen, RParen, LBrace, RBrace, Colon, Comma, Equal,
+    LParen, RParen, LBrace, RBrace, Colon, Comma, Equal, Arrow,
     Plus, Minus, Star, Slash, Percent, Bang,
     Less, LessEqual, Greater, GreaterEqual, EqualEqual, BangEqual,
     AndAnd, OrOr, Newline, Eof,
@@ -34,6 +34,7 @@ fn lex(source: &str) -> Result<Vec<Token>, String> {
             ':' => { i += 1; Kind::Colon }
             ',' => { i += 1; Kind::Comma }
             '+' => { i += 1; Kind::Plus }
+            '-' if chars.get(i + 1) == Some(&'>') => { i += 2; Kind::Arrow },
             '-' => { i += 1; Kind::Minus }
             '*' => { i += 1; Kind::Star }
             '%' => { i += 1; Kind::Percent }
@@ -106,6 +107,9 @@ enum Expr {
 #[derive(Debug)]
 enum Stmt { Let { name: String, value: Expr }, Print(Expr), Return(Expr), If { condition: Expr, then_branch: Vec<Stmt>, else_branch: Option<Vec<Stmt>> } }
 
+#[derive(Debug)]
+struct Function { name: String, params: Vec<(String, String)>, return_type: String, body: Vec<Stmt> }
+
 struct Parser { tokens: Vec<Token>, at: usize }
 
 impl Parser {
@@ -161,11 +165,13 @@ impl Parser {
                     "parse_int" | "is_even" | "is_odd" | "sign" => Some((1, 1)),
                     "min" | "max" | "pow" | "contains" | "starts_with" | "ends_with" => Some((2, 2)),
                     "clamp" => Some((3, 3)),
-                    _ => return Err(format!("line {}: unknown function '{s}'", token.line)),
-                }.expect("known function");
-                if args.len() < expected.0 || args.len() > expected.1 {
-                    let expected_text = if expected.0 == expected.1 { expected.0.to_string() } else { format!("{} or {}", expected.0, expected.1) };
-                    return Err(format!("line {}: function '{s}' expects {expected_text} argument(s), got {}", token.line, args.len()));
+                    _ => None,
+                };
+                if let Some(expected) = expected {
+                    if args.len() < expected.0 || args.len() > expected.1 {
+                        let expected_text = if expected.0 == expected.1 { expected.0.to_string() } else { format!("{} or {}", expected.0, expected.1) };
+                        return Err(format!("line {}: function '{s}' expects {expected_text} argument(s), got {}", token.line, args.len()));
+                    }
                 }
                 Ok(Expr::Call { name: s, args })
             }
@@ -248,27 +254,61 @@ impl Parser {
             _ => Err(format!("line {}: unsupported statement", self.current().line)),
         }
     }
-    fn program(&mut self) -> Result<Vec<Stmt>, String> {
-        self.skip_newlines();
+    fn parse_type(&mut self, description: &str) -> Result<String, String> {
+        let ty = self.take_name(description)?;
+        match ty.as_str() {
+            "i32" | "i64" | "u32" | "u64" | "f32" | "f64" | "bool" | "String" => Ok(ty),
+            _ => Err(format!("line {}: unsupported type '{ty}' (supported: i32, i64, u32, u64, f32, f64, bool, String)", self.current().line)),
+        }
+    }
+    fn function(&mut self) -> Result<Function, String> {
         self.expect_word("fn")?;
-        self.expect_word("main")?;
-        self.expect(Kind::LParen, "'(' after main")?;
-        self.expect(Kind::RParen, "')' after main")?;
-        self.expect(Kind::LBrace, "'{' to start main body")?;
-        let mut statements = Vec::new();
-        loop {
-            self.skip_newlines();
-            if matches!(&self.current().kind, Kind::RBrace) { self.advance(); break; }
-            if matches!(&self.current().kind, Kind::Eof) {
-                return Err(format!("line {}: expected '}}' to close main", self.current().line));
+        let name = self.take_name("a function name")?;
+        self.expect(Kind::LParen, "'(' after function name")?;
+        let mut params = Vec::new();
+        if !matches!(&self.current().kind, Kind::RParen) {
+            loop {
+                let param_name = self.take_name("a parameter name")?;
+                self.expect(Kind::Colon, "':' after parameter name")?;
+                let param_type = self.parse_type("a parameter type")?;
+                if params.iter().any(|(existing, _)| existing == &param_name) {
+                    return Err(format!("line {}: duplicate parameter '{param_name}'", self.current().line));
+                }
+                params.push((param_name, param_type));
+                if matches!(&self.current().kind, Kind::Comma) { self.advance(); }
+                else { break; }
             }
-            statements.push(self.statement()?);
         }
+        self.expect(Kind::RParen, "')' after parameters")?;
+        let return_type = if matches!(&self.current().kind, Kind::Arrow) {
+            self.advance();
+            self.parse_type("a return type")?
+        } else if name == "main" {
+            "i32".to_string()
+        } else {
+            "i64".to_string()
+        };
+        let body = self.block()?;
+        if name == "main" && !params.is_empty() {
+            return Err("line 1: main must not declare parameters".to_string());
+        }
+        Ok(Function { name, params, return_type, body })
+    }
+    fn program(&mut self) -> Result<Vec<Function>, String> {
+        let mut functions = Vec::new();
         self.skip_newlines();
-        if !matches!(&self.current().kind, Kind::Eof) {
-            return Err(format!("line {}: only one main function is supported in this prototype", self.current().line));
+        while !matches!(&self.current().kind, Kind::Eof) {
+            let function = self.function()?;
+            if functions.iter().any(|existing: &Function| existing.name == function.name) {
+                return Err(format!("line {}: duplicate function '{}'", self.current().line, function.name));
+            }
+            functions.push(function);
+            self.skip_newlines();
         }
-        Ok(statements)
+        if !functions.iter().any(|function| function.name == "main") {
+            return Err("program must define fn main()".to_string());
+        }
+        Ok(functions)
     }
 }
 
@@ -317,7 +357,7 @@ fn cpp_expr(expr: &Expr) -> String {
                 "is_even" => format!("(({}) % 2 == 0)", values[0]),
                 "is_odd" => format!("(({}) % 2 != 0)", values[0]),
                 "sign" => format!("(({}) > 0 ? 1 : (({}) < 0 ? -1 : 0))", values[0], values[0]),
-                _ => unreachable!("function names validated by parser"),
+                _ => format!("{name}({})", values.join(", ")),
             }
         }
         Expr::Unary { op, value } => {
@@ -357,14 +397,70 @@ fn emit_statements(statements: &[Stmt], cpp: &mut String, indent: usize) {
     }
 }
 
+fn cpp_type(ty: &str) -> &'static str {
+    match ty {
+        "i32" => "std::int32_t",
+        "i64" => "std::int64_t",
+        "u32" => "std::uint32_t",
+        "u64" => "std::uint64_t",
+        "f32" => "float",
+        "f64" => "double",
+        "bool" => "bool",
+        "String" => "std::string",
+        _ => unreachable!("parser validates types"),
+    }
+}
+
+fn validate_expr_calls(expr: &Expr, signatures: &std::collections::HashMap<String, usize>) -> Result<(), String> {
+    match expr {
+        Expr::Call { name, args } => {
+            let builtin = matches!(name.as_str(), "input" | "len" | "abs" | "sqrt" | "floor" | "ceil" | "round" | "to_string" | "parse_int" | "is_even" | "is_odd" | "sign" | "min" | "max" | "pow" | "contains" | "starts_with" | "ends_with" | "clamp");
+            if !builtin {
+                let expected = signatures.get(name).ok_or_else(|| format!("unknown function '{name}'"))?;
+                if args.len() != *expected {
+                    return Err(format!("function '{name}' expects {expected} argument(s), got {}", args.len()));
+                }
+            }
+            for arg in args { validate_expr_calls(arg, signatures)?; }
+        }
+        Expr::Unary { value, .. } => validate_expr_calls(value, signatures)?,
+        Expr::Binary { left, right, .. } => {
+            validate_expr_calls(left, signatures)?;
+            validate_expr_calls(right, signatures)?;
+        }
+        Expr::Text(_) | Expr::Number(_) | Expr::Bool(_) | Expr::Name(_) => {}
+    }
+    Ok(())
+}
+
+fn validate_function_calls(statements: &[Stmt], signatures: &std::collections::HashMap<String, usize>) -> Result<(), String> {
+    for stmt in statements {
+        match stmt {
+            Stmt::Let { value, .. } | Stmt::Print(value) | Stmt::Return(value) => validate_expr_calls(value, signatures)?,
+            Stmt::If { condition, then_branch, else_branch } => {
+                validate_expr_calls(condition, signatures)?;
+                validate_function_calls(then_branch, signatures)?;
+                if let Some(branch) = else_branch { validate_function_calls(branch, signatures)?; }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Parse the current Cinder subset and emit C++ for native compilation.
 /// This bootstrap does not yet perform static type checking.
 pub fn compile_to_cpp(source: &str) -> Result<String, String> {
     let tokens = lex(source)?;
     let mut parser = Parser { tokens, at: 0 };
-    let statements = parser.program()?;
+    let functions = parser.program()?;
+    let signatures: std::collections::HashMap<String, usize> = functions.iter()
+        .map(|function| (function.name.clone(), function.params.len())).collect();
+    for function in &functions {
+        if function.name == "main" { continue; }
+        validate_function_calls(&function.body, &signatures)?;
+    }
     let mut cpp = String::from(
-        "#include <algorithm>\n#include <cmath>\n#include <iostream>\n#include <stdexcept>\n#include <string>\n#include <type_traits>\n\n"
+        "#include <algorithm>\n#include <cmath>\n#include <cstdint>\n#include <iostream>\n#include <stdexcept>\n#include <string>\n#include <type_traits>\n\n"
     );
     cpp.push_str(r#"
 inline long long cinder_len(const std::string& value) {
@@ -414,8 +510,28 @@ inline long long cinder_parse_int(const std::string& value) {
     return result;
 }
 "#);
-    cpp.push_str("\nint main() {\n");
-    emit_statements(&statements, &mut cpp, 1);
+    for function in &functions {
+        if function.name == "main" { continue; }
+        let return_type = cpp_type(&function.return_type);
+        let params = function.params.iter()
+            .map(|(name, ty)| format!("{} {}", cpp_type(ty), name))
+            .collect::<Vec<_>>().join(", ");
+        writeln!(cpp, "{return_type} {}({params});", function.name).unwrap();
+    }
+    cpp.push('\n');
+    for function in &functions {
+        if function.name == "main" { continue; }
+        let return_type = cpp_type(&function.return_type);
+        let params = function.params.iter()
+            .map(|(name, ty)| format!("{} {}", cpp_type(ty), name))
+            .collect::<Vec<_>>().join(", ");
+        writeln!(cpp, "{return_type} {}({params}) {{", function.name).unwrap();
+        emit_statements(&function.body, &mut cpp, 1);
+        cpp.push_str("}\n\n");
+    }
+    cpp.push_str("int main() {\n");
+    let main_function = functions.iter().find(|function| function.name == "main").expect("main checked");
+    emit_statements(&main_function.body, &mut cpp, 1);
     cpp.push_str("    return 0;\n}\n");
     Ok(cpp)
 }
@@ -424,6 +540,26 @@ inline long long cinder_parse_int(const std::string& value) {
 #[cfg(test)]
 mod tests {
     use super::compile_to_cpp;
+
+    #[test]
+    fn compiles_typed_user_functions_and_forward_calls() {
+        let cpp = compile_to_cpp(r#"fn main() {
+            print(add(20, 22))
+        }
+        fn add(a: i64, b: i64) -> i64 {
+            return a + b
+        }"#).unwrap();
+        assert!(cpp.contains("std::int64_t add(std::int64_t a, std::int64_t b);"));
+        assert!(cpp.contains("return (a + b);"));
+        assert!(cpp.contains("std::cout << add(20, 22)"));
+    }
+
+    #[test]
+    fn rejects_unknown_user_functions_and_wrong_arity() {
+        assert!(compile_to_cpp("fn main() { print(missing(1)) }").unwrap_err().contains("unknown function"));
+        assert!(compile_to_cpp(r#"fn main() { print(add(1)) }
+            fn add(a: i64, b: i64) -> i64 { return a + b }"#).unwrap_err().contains("expects 2 argument"));
+    }
 
     #[test]
     fn emits_common_standard_library_calls() {
