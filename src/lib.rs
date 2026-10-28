@@ -331,7 +331,14 @@ impl Parser {
             Kind::Ident(word) if word == "if" => {
                 self.advance(); let condition = self.expression()?; let then_branch = self.block()?;
                 self.skip_newlines();
-                let else_branch = if matches!(&self.current().kind, Kind::Ident(word) if word == "else") { self.advance(); Some(self.block()?) } else { None };
+                let else_branch = if matches!(&self.current().kind, Kind::Ident(word) if word == "else") {
+                    self.advance();
+                    if matches!(&self.current().kind, Kind::Ident(word) if word == "if") {
+                        Some(vec![self.statement()?])
+                    } else {
+                        Some(self.block()?)
+                    }
+                } else { None };
                 Ok(Stmt::If { condition, then_branch, else_branch })
             }
             _ => Err(format!("line {}: unsupported statement", self.current().line)),
@@ -1224,6 +1231,24 @@ mod tests {
         assert!(cpp.contains("inline long long cinder_parse_int"));
         assert!(cpp.contains(".starts_with("));
         assert!(cpp.contains(".ends_with("));
+    }
+
+    #[test]
+    fn supports_else_if_chains() {
+        let cpp = compile_to_cpp(r#"fn main() {
+            let score = 75
+            if score >= 90 {
+                print("A")
+            } else if score >= 80 {
+                print("B")
+            } else if score >= 70 {
+                print("C")
+            } else {
+                print("F")
+            }
+        }"#).unwrap();
+        assert!(cpp.contains("else {\n        if ((score >= 80))"));
+        assert!(cpp.contains("if ((score >= 70))"));
     }
 
     #[test]
