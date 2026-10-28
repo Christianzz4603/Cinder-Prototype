@@ -11,14 +11,14 @@ This repository is the first bootstrap prototype. It is deliberately small so th
 The compiler is written in Rust and translates the initial Cinder syntax subset into C++ source, then invokes a native C++ compiler. The generated program is a native executable, not a Cinder virtual-machine bytecode program.
 
 Currently supported:
-- \`fn main() { ... }\`
-- \`let\` and \`var\` declarations with optional type annotations
+- `fn main() { ... }`
+- `let` and `var` declarations with optional type annotations
 - string, integer, boolean, and variable expressions
-- \`print(expression)\`
-- \`return expression\`
-- \`if condition { ... }\` and optional \`else { ... }\` blocks, including nesting
+- `print(expression)`
+- `return expression`
+- `if condition { ... }` and optional `else { ... }` blocks, including nesting
 - Arithmetic, comparison, equality, logical, unary, and grouped expressions
-- \`//\` comments and common string escapes
+- `//` comments and common string escapes
 
 Not implemented yet: loops, user-defined functions, real static type checking, ownership/borrowing, a custom intermediate representation, LLVM integration, package management, and cross-compilation. Type annotations are accepted but not enforced, and this prototype does not yet guarantee memory safety. The current transpiler is a bootstrap, not yet a production compiler or a memory-safety system.
 
@@ -39,10 +39,17 @@ To select a compiler, set the CXX environment variable, for example: CXX=clang++
     fn main() {
         let language: str = "Cinder"
         let version: i32 = 1
+        let score = 42
 
         print("Hello from Cinder!")
         print(language)
         print(version)
+
+        if score >= 40 {
+            print("Passed")
+        } else {
+            print("Try again")
+        }
     }
 
 ## Design principles
