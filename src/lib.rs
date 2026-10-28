@@ -546,8 +546,11 @@ impl Parser {
         self.skip_newlines();
         while !matches!(&self.current().kind, Kind::Eof) {
             let function = self.function()?;
-            if functions.iter().any(|existing: &Function| existing.name == function.name) {
-                return Err(format!("line {}: duplicate function '{}'", self.current().line, function.name));
+            if functions.iter().any(|existing: &Function| {
+                existing.name == function.name
+                    && existing.params.iter().map(|(_, ty)| ty).eq(function.params.iter().map(|(_, ty)| ty))
+            }) {
+                return Err(format!("line {}: duplicate function signature for '{}'", self.current().line, function.name));
             }
             functions.push(function);
             self.skip_newlines();
@@ -733,7 +736,7 @@ fn lookup_variable(scopes: &TypeScopes, name: &str) -> Option<(String, bool)> {
 fn infer_expr_type(
     expr: &Expr,
     scopes: &TypeScopes,
-    signatures: &std::collections::HashMap<String, FunctionSignature>,
+    signatures: &std::collections::HashMap<String, Vec<FunctionSignature>>,
 ) -> Result<String, String> {
     match expr {
         Expr::Text(_) => Ok("String".into()),
@@ -846,13 +849,25 @@ fn infer_expr_type(
                     Ok(arg_types[0].clone())
                 }
                 _ => {
-                    let signature = signatures.get(name).ok_or_else(|| format!("unknown function '{name}'"))?;
-                    for (index, (actual, expected)) in arg_types.iter().zip(&signature.params).enumerate() {
-                        if actual != expected && !(matches!(args[index], Expr::Number(_)) && is_numeric(expected)) {
-                            return Err(format!("argument {} to '{name}' expects {expected}, got {actual}", index + 1));
-                        }
+                    let candidates = signatures.get(name).ok_or_else(|| format!("unknown function '{name}'"))?;
+                    let mut viable: Vec<(usize, &FunctionSignature)> = candidates.iter()
+                        .filter(|signature| signature.params.len() == arg_types.len())
+                        .filter_map(|signature| {
+                            let mut score = 0usize;
+                            for (index, (actual, expected)) in arg_types.iter().zip(&signature.params).enumerate() {
+                                if !compatible_type(actual, expected, &args[index]) { return None; }
+                                if actual != expected { score += 1; }
+                            }
+                            Some((score, signature))
+                        }).collect();
+                    if viable.is_empty() {
+                        return Err(format!("no overload of '{name}' matches argument types ({})", arg_types.join(", ")));
                     }
-                    Ok(signature.return_type.clone())
+                    viable.sort_by_key(|(score, _)| *score);
+                    if viable.len() > 1 && viable[0].0 == viable[1].0 {
+                        return Err(format!("call to '{name}' is ambiguous for argument types ({})", arg_types.join(", ")));
+                    }
+                    Ok(viable[0].1.return_type.clone())
                 }
             }
         }
@@ -862,7 +877,7 @@ fn infer_expr_type(
 fn check_statements(
     statements: &[Stmt],
     scopes: &mut TypeScopes,
-    signatures: &std::collections::HashMap<String, FunctionSignature>,
+    signatures: &std::collections::HashMap<String, Vec<FunctionSignature>>,
     expected_return: &str,
     loop_depth: usize,
 ) -> Result<(), String> {
@@ -983,12 +998,13 @@ fn block_definitely_returns(statements: &[Stmt]) -> bool {
 }
 
 fn type_check_program(functions: &[Function]) -> Result<(), String> {
-    let signatures: std::collections::HashMap<String, FunctionSignature> = functions.iter().map(|function| {
-        (function.name.clone(), FunctionSignature {
+    let mut signatures: std::collections::HashMap<String, Vec<FunctionSignature>> = std::collections::HashMap::new();
+    for function in functions {
+        signatures.entry(function.name.clone()).or_default().push(FunctionSignature {
             params: function.params.iter().map(|(_, ty)| ty.clone()).collect(),
             return_type: function.return_type.clone(),
-        })
-    }).collect();
+        });
+    }
     for function in functions {
         let mut scopes = vec![std::collections::HashMap::new()];
         for (name, ty) in &function.params {
@@ -1006,13 +1022,15 @@ fn type_check_program(functions: &[Function]) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_expr_calls(expr: &Expr, signatures: &std::collections::HashMap<String, usize>) -> Result<(), String> {
+fn validate_expr_calls(expr: &Expr, signatures: &std::collections::HashMap<String, Vec<usize>>) -> Result<(), String> {
     match expr {
         Expr::Call { name, args } => {
             let builtin = matches!(name.as_str(), "input" | "len" | "is_empty" | "capacity" | "pop" | "abs" | "sqrt" | "floor" | "ceil" | "round" | "to_string" | "parse_int" | "is_even" | "is_odd" | "sign" | "min" | "max" | "pow" | "contains" | "starts_with" | "ends_with" | "clamp");
             if !builtin {
                 let expected = signatures.get(name).ok_or_else(|| format!("unknown function '{name}'"))?;
-                if args.len() != *expected { return Err(format!("function '{name}' expects {expected} argument(s), got {}", args.len())); }
+                if !expected.contains(&args.len()) {
+                    return Err(format!("no overload of '{name}' accepts {} argument(s)", args.len()));
+                }
             }
             for arg in args { validate_expr_calls(arg, signatures)?; }
         }
@@ -1025,7 +1043,7 @@ fn validate_expr_calls(expr: &Expr, signatures: &std::collections::HashMap<Strin
     Ok(())
 }
 
-fn validate_function_calls(statements: &[Stmt], signatures: &std::collections::HashMap<String, usize>, loop_depth: usize) -> Result<(), String> {
+fn validate_function_calls(statements: &[Stmt], signatures: &std::collections::HashMap<String, Vec<usize>>, loop_depth: usize) -> Result<(), String> {
     for stmt in statements {
         match stmt {
             Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Print(value) | Stmt::Return(value) => validate_expr_calls(value, signatures)?,
@@ -1063,8 +1081,10 @@ pub fn compile_to_ir(source: &str) -> Result<ir::IrProgram, String> {
     let mut parser = Parser { tokens, at: 0 };
     let functions = parser.program()?;
     type_check_program(&functions)?;
-    let signatures: std::collections::HashMap<String, usize> = functions.iter()
-        .map(|function| (function.name.clone(), function.params.len())).collect();
+    let mut signatures: std::collections::HashMap<String, Vec<usize>> = std::collections::HashMap::new();
+    for function in &functions {
+        signatures.entry(function.name.clone()).or_default().push(function.params.len());
+    }
     for function in &functions {
         validate_function_calls(&function.body, &signatures, 0)?;
     }
@@ -1494,6 +1514,21 @@ mod ir_tests {
         assert!(cpp.contains("static_cast<long long>((filled_values).capacity())"));
         assert!(crate::compile_to_cpp("fn main() { print(capacity(\"x\")) }").is_err());
         assert!(crate::compile_to_cpp("fn main() { print(is_empty(42)) }").is_err());
+    }
+
+    #[test]
+    fn resolves_overloads_by_parameter_types() {
+        let cpp = crate::compile_to_cpp(r#"fn convert(value: i64) -> i64 { return value + 1 }
+fn convert(value: String) -> String { return value }
+fn main() {
+    print(convert(4))
+    print(convert("cinder"))
+}"#).unwrap();
+        assert!(cpp.contains("convert(std::int64_t value)"));
+        assert!(cpp.contains("convert(std::string value)"));
+        assert!(cpp.contains("convert(4)"));
+        assert!(cpp.contains('convert(std::string("cinder"))'));
+        assert!(crate::compile_to_cpp("fn same(value: i64) -> i64 { return value }\nfn same(value: i64) -> i64 { return value }\nfn main() {}").unwrap_err().contains("duplicate function signature"));
     }
 
 }
