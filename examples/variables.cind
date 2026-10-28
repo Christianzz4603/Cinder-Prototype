@@ -1,0 +1,9 @@
+fn main() {
+    let language: str = "Cinder"
+    let version: i32 = 1
+    let stable: bool = false
+
+    print(language)
+    print(version)
+    print(stable)
+}

@@ -1,15 +1,57 @@
-# Native Stress Benchmark
+# Cinder
 
-A reproducible Android ARM64 benchmark for ELF inspection, disassembly, function discovery, and decompiler throughput.
+**Write naturally. Compile natively. Run anywhere.**
 
-- Build Native Stress Library generates and commits C++ source shards, builds an Android ARM64 shared library, and uploads an artifact. A 96 MiB generated read-only data section ensures the file is large enough for large-binary testing; this increases file size, not the complexity of each function.
-- Decompile Native Stress Library downloads a selected build artifact, downloads the official Ghidra distribution, runs headless analysis, exports a bounded number of C-like pseudocode files, and commits reports to the decompiled-results branch.
+Cinder is an experimental general-purpose systems language. Its goal is to pair readable syntax with native performance, strong safety guarantees in safe code, and low-level control when needed.
 
-## Run
+This repository is the first bootstrap prototype. It is deliberately small so the language can grow from a tested foundation instead of a pile of unimplemented promises.
 
-1. Open Actions and run Build Native Stress Library. Defaults use 12,000 functions and 96 rounds per function.
-2. Copy the successful build run ID from its Actions URL.
-3. Run Decompile Native Stress Library with that run ID. Start with 100-500 functions.
-4. Download the native-stress-pseudocode artifact or inspect the decompiled-results branch.
+## Current prototype
 
-The workflow records the actual binary size and SHA-256. Large binaries are attached to a GitHub Release rather than committed as ordinary Git blobs, which have a 100 MB per-file limit. Decompilation is capped at 2,000 functions per run.
+The compiler is written in Rust and translates the initial Cinder syntax subset into C++ source, then invokes a native C++ compiler. The generated program is a native executable, not a Cinder virtual-machine bytecode program.
+
+Currently supported:
+- \`fn main() { ... }\`
+- \`let\` and \`var\` declarations with optional type annotations
+- string, integer, boolean, and variable expressions
+- \`print(expression)\`
+- \`return expression\`
+- \`//\` comments and common string escapes
+
+Not implemented yet: arithmetic expressions, user-defined functions, conditionals, loops, real type checking, ownership/borrowing, a custom intermediate representation, LLVM integration, package management, and cross-compilation. The current transpiler is a bootstrap, not yet a production compiler or a memory-safety system.
+
+## Try it
+
+Requirements: Rust stable and a C++20 compiler such as clang++ or g++.
+
+    cargo test
+    cargo run -- check examples/hello.cind
+    cargo run -- run examples/hello.cind
+    cargo run -- build examples/hello.cind -o hello
+    ./hello
+
+To select a compiler, set the CXX environment variable, for example: CXX=clang++ cargo run -- build examples/hello.cind
+
+## Example
+
+    fn main() {
+        let language: str = "Cinder"
+        let version: i32 = 1
+
+        print("Hello from Cinder!")
+        print(language)
+        print(version)
+    }
+
+## Design principles
+
+1. Readable syntax with minimal ceremony.
+2. Native compilation as the primary execution model.
+3. Strong memory-safety guarantees in safe code, without requiring a garbage collector.
+4. Explicit low-level capabilities for systems programming.
+5. Cross-platform tooling and standard libraries, introduced incrementally.
+6. Benchmark claims against optimized C++ and Rust rather than assuming superiority.
+
+## Roadmap
+
+See docs/roadmap.md for the staged plan and current limitations.
