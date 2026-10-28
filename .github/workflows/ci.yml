@@ -32,7 +32,7 @@ jobs:
           done
       - name: Run native examples
         run: |
-          set -eu
+          set -eux
           test "$(/tmp/cinder-hello | head -n 1)" = "Hello from Cinder!"
           /tmp/cinder-variables
           /tmp/cinder-control_flow
