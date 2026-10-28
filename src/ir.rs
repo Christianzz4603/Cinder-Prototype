@@ -151,3 +151,199 @@ pub(crate) fn lower_program(functions: &[Function]) -> IrProgram {
         }).collect(),
     }
 }
+
+
+fn cpp_string(value: &str) -> String {
+    let mut out = String::from("\"");
+    for ch in value.chars() {
+        match ch {
+            '\\\\' => out.push_str("\\\\\\\\"),
+            '\"' => out.push_str("\\\\\""),
+            '\n' => out.push_str("\\\\n"),
+            '\r' => out.push_str("\\\\r"),
+            '\t' => out.push_str("\\\\t"),
+            c if c.is_control() => out.push_str(&format!("\\\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('\"');
+    out
+}
+
+fn cpp_number(number: &str) -> String {
+    if let Some(digits) = number.strip_prefix("0o").or_else(|| number.strip_prefix("0O")) {
+        return format!("0{digits}");
+    }
+    if number.starts_with("0x") || number.starts_with("0X") || number.starts_with("0b") || number.starts_with("0B") {
+        return number.to_string();
+    }
+    if number.chars().all(|ch| ch.is_ascii_digit()) && number.len() > 1 && number.starts_with('0') {
+        let normalized = number.trim_start_matches('0');
+        return if normalized.is_empty() { "0".to_string() } else { normalized.to_string() };
+    }
+    number.to_string()
+}
+
+fn cpp_type(ty: &str) -> String {
+    match ty {
+        "i32" => "std::int32_t".into(),
+        "i64" => "std::int64_t".into(),
+        "u32" => "std::uint32_t".into(),
+        "u64" => "std::uint64_t".into(),
+        "f32" => "float".into(),
+        "f64" => "double".into(),
+        "bool" => "bool".into(),
+        "String" => "std::string".into(),
+        array if array.starts_with("Array<") && array.ends_with('>') =>
+            format!("std::vector<{}>", cpp_type(&array[6..array.len() - 1])),
+        _ => "auto".into(),
+    }
+}
+
+fn cpp_expr(expr: &IrExpression) -> String {
+    match expr {
+        IrExpression::String(s) => format!("std::string({})", cpp_string(s)),
+        IrExpression::Array(items) => format!("std::vector{{{}}}", items.iter().map(cpp_expr).collect::<Vec<_>>().join(", ")),
+        IrExpression::Index { value, index } => format!("{}.at({})", cpp_expr(value), cpp_expr(index)),
+        IrExpression::Number(n) => cpp_number(n),
+        IrExpression::Bool(b) => b.to_string(),
+        IrExpression::Variable(n) => n.clone(),
+        IrExpression::Call { name, arguments } => {
+            let values: Vec<String> = arguments.iter().map(cpp_expr).collect();
+            match name.as_str() {
+                "len" => format!("static_cast<long long>(cinder_len({}))", values[0]),
+                "pop" => format!("cinder_pop({})", values[0]),
+                "abs" => format!("std::abs({})", values[0]),
+                "min" => format!("std::min({}, {})", values[0], values[1]),
+                "max" => format!("std::max({}, {})", values[0], values[1]),
+                "clamp" => format!("std::clamp({}, {}, {})", values[0], values[1], values[2]),
+                "sqrt" => format!("std::sqrt({})", values[0]),
+                "pow" => format!("std::pow({}, {})", values[0], values[1]),
+                "floor" => format!("std::floor({})", values[0]),
+                "ceil" => format!("std::ceil({})", values[0]),
+                "round" => format!("std::round({})", values[0]),
+                "input" => format!("cinder_input({})", values.join(", ")),
+                "to_string" => format!("cinder_to_string({})", values[0]),
+                "parse_int" => format!("cinder_parse_int({})", values[0]),
+                "contains" => format!("({}.find({}) != std::string::npos)", values[0], values[1]),
+                "starts_with" => format!("({}.starts_with({}))", values[0], values[1]),
+                "ends_with" => format!("({}.ends_with({}))", values[0], values[1]),
+                "is_even" => format!("(({}) % 2 == 0)", values[0]),
+                "is_odd" => format!("(({}) % 2 != 0)", values[0]),
+                "sign" => format!("(({}) > 0 ? 1 : (({}) < 0 ? -1 : 0))", values[0], values[0]),
+                _ => format!("{name}({})", values.join(", ")),
+            }
+        }
+        IrExpression::Unary { operator, value } => format!("({operator}{})", cpp_expr(value)),
+        IrExpression::Binary { left, operator, right } =>
+            format!("({} {operator} {})", cpp_expr(left), cpp_expr(right)),
+    }
+}
+
+fn emit_statements(statements: &[IrStatement], cpp: &mut String, indent: usize) {
+    let pad = "    ".repeat(indent);
+    for stmt in statements {
+        match stmt {
+            IrStatement::Let { name, ty, mutable, value } => {
+                let qualifier = if *mutable { "" } else { "const " };
+                let declared = ty.as_deref().map(cpp_type).unwrap_or_else(|| "auto".to_string());
+                use std::fmt::Write as _;
+                writeln!(cpp, "{pad}{qualifier}{declared} {name} = {};", cpp_expr(value)).unwrap();
+            }
+            IrStatement::Assign { name, value } => { cpp.push_str(&format!("{pad}{name} = {};\n", cpp_expr(value))); }
+            IrStatement::IndexAssign { name, index, value } => { cpp.push_str(&format!("{pad}{name}.at({}) = {};\n", cpp_expr(index), cpp_expr(value))); }
+            IrStatement::Push { name, value } => { cpp.push_str(&format!("{pad}{name}.push_back({});\n", cpp_expr(value))); }
+            IrStatement::Print(value) => { cpp.push_str(&format!("{pad}std::cout << {} << '\\n';\n", cpp_expr(value))); }
+            IrStatement::Return(value) => { cpp.push_str(&format!("{pad}return {};\n", cpp_expr(value))); }
+            IrStatement::Break => cpp.push_str(&format!("{pad}break;\n")),
+            IrStatement::Continue => cpp.push_str(&format!("{pad}continue;\n")),
+            IrStatement::If { condition, then_body, else_body } => {
+                cpp.push_str(&format!("{pad}if ({}) {{\n", cpp_expr(condition)));
+                emit_statements(then_body, cpp, indent + 1);
+                if let Some(other) = else_body {
+                    cpp.push_str(&format!("{pad}}} else {{\n"));
+                    emit_statements(other, cpp, indent + 1);
+                }
+                cpp.push_str(&format!("{pad}}}\n"));
+            }
+            IrStatement::While { condition, body } => {
+                cpp.push_str(&format!("{pad}while ({}) {{\n", cpp_expr(condition)));
+                emit_statements(body, cpp, indent + 1);
+                cpp.push_str(&format!("{pad}}}\n"));
+            }
+            IrStatement::ForRange { name, start, end, body } => {
+                cpp.push_str(&format!("{pad}for (std::int64_t {name} = {}; {name} < {}; ++{name}) {{\n", cpp_expr(start), cpp_expr(end)));
+                emit_statements(body, cpp, indent + 1);
+                cpp.push_str(&format!("{pad}}}\n"));
+            }
+            IrStatement::ForEach { name, iterable, body } => {
+                cpp.push_str(&format!("{pad}for (const auto& {name} : {}) {{\n", cpp_expr(iterable)));
+                emit_statements(body, cpp, indent + 1);
+                cpp.push_str(&format!("{pad}}}\n"));
+            }
+        }
+    }
+}
+
+/// Emit the bootstrap C++ backend exclusively from Cinder IR.
+pub(crate) fn emit_cpp(program: &IrProgram) -> String {
+    let mut cpp = String::from("#include <algorithm>\n#include <cmath>\n#include <cstdint>\n#include <iostream>\n#include <stdexcept>\n#include <string>\n#include <type_traits>\n#include <vector>\n\n");
+    cpp.push_str(r#"
+inline long long cinder_len(const std::string& value) {
+    return static_cast<long long>(value.size());
+}
+template <typename T>
+inline long long cinder_len(const std::vector<T>& value) {
+    return static_cast<long long>(value.size());
+}
+template <typename T>
+inline T cinder_pop(std::vector<T>& value) {
+    if (value.empty()) throw std::out_of_range("pop: array is empty");
+    T result = value.back();
+    value.pop_back();
+    return result;
+}
+inline std::string cinder_input(const std::string& prompt = {}) {
+    if (!prompt.empty()) std::cout << prompt << std::flush;
+    std::string value;
+    if (!std::getline(std::cin, value)) return {};
+    return value;
+}
+inline std::string cinder_to_string(const std::string& value) { return value; }
+inline std::string cinder_to_string(const char* value) {
+    return value == nullptr ? std::string{} : std::string(value);
+}
+inline std::string cinder_to_string(bool value) { return value ? "true" : "false"; }
+template <typename T>
+    requires std::is_arithmetic_v<T>
+inline std::string cinder_to_string(T value) {
+    if constexpr (std::is_same_v<T, char> || std::is_same_v<T, signed char> || std::is_same_v<T, unsigned char>)
+        return std::to_string(static_cast<int>(value));
+    else return std::to_string(value);
+}
+inline long long cinder_parse_int(const std::string& value) {
+    std::size_t consumed = 0;
+    const long long result = std::stoll(value, &consumed, 10);
+    if (consumed != value.size()) throw std::invalid_argument("parse_int: trailing characters in integer");
+    return result;
+}
+"#);
+    for function in &program.functions {
+        if function.name == "main" { continue; }
+        let params = function.parameters.iter().map(|p| format!("{} {}", cpp_type(&p.ty), p.name)).collect::<Vec<_>>().join(", ");
+        cpp.push_str(&format!("{} {}({params});\n", cpp_type(&function.return_type), function.name));
+    }
+    cpp.push('\n');
+    for function in &program.functions {
+        if function.name == "main" { continue; }
+        let params = function.parameters.iter().map(|p| format!("{} {}", cpp_type(&p.ty), p.name)).collect::<Vec<_>>().join(", ");
+        cpp.push_str(&format!("{} {}({params}) {{\n", cpp_type(&function.return_type), function.name));
+        emit_statements(&function.body, &mut cpp, 1);
+        cpp.push_str("}\n\n");
+    }
+    cpp.push_str("int main() {\n");
+    let main_function = program.functions.iter().find(|f| f.name == "main").expect("frontend requires main");
+    emit_statements(&main_function.body, &mut cpp, 1);
+    cpp.push_str("    return 0;\n}\n");
+    cpp
+}

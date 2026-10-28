@@ -53,7 +53,7 @@ Release builds default to native -O3 optimization. Set CINDER_OPT_LEVEL=0|1|2|3|
 
 ## Current limitations
 
-Cinder is actively evolving. The compiler now lowers validated source into a backend-independent structural IR, but the existing C++ backend has not yet been rewritten to consume that IR. It still translates the parsed syntax tree to C++ rather than using LLVM or a direct native backend. The semantic checker is an initial implementation, not a complete type system. Arrays use C++ std::vector storage and bounds-checked access, but the language does not yet provide ownership, borrowing, or lifetime analysis. Structs, enums, modules, full generic functions, package management, cross-compilation, and a production-quality standard library are not implemented. **Cinder does not currently guarantee memory safety.**
+Cinder is actively evolving. The compiler now lowers validated source into a backend-independent structural IR, but the C++ backend now consumes the IR, rather than the parsed syntax tree. It still emits C++20 and invokes an external native compiler; LLVM or a direct native backend remains future work. The semantic checker is an initial implementation, not a complete type system. Arrays use C++ std::vector storage and bounds-checked access, but the language does not yet provide ownership, borrowing, or lifetime analysis. Structs, enums, modules, full generic functions, package management, cross-compilation, and a production-quality standard library are not implemented. **Cinder does not currently guarantee memory safety.**
 
 A game engine would be a separate library built on top of Cinder, not part of the compiler itself.
 
