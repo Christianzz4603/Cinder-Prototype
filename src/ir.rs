@@ -16,6 +16,7 @@ pub struct IrProgram {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IrFunction {
     pub name: String,
+    pub type_parameters: Vec<String>,
     pub parameters: Vec<IrParameter>,
     pub return_type: String,
     pub body: Vec<IrStatement>,
@@ -145,6 +146,7 @@ pub(crate) fn lower_program(functions: &[Function]) -> IrProgram {
     IrProgram {
         functions: functions.iter().map(|function| IrFunction {
             name: function.name.clone(),
+            type_parameters: function.type_params.clone(),
             parameters: function.params.iter().map(|(name, ty)| IrParameter {
                 name: name.clone(), ty: ty.clone(),
             }).collect(),
@@ -198,7 +200,7 @@ fn cpp_type(ty: &str) -> String {
         "String" => "std::string".into(),
         array if array.starts_with("Array<") && array.ends_with('>') =>
             format!("std::vector<{}>", cpp_type(&array[6..array.len() - 1])),
-        _ => "auto".into(),
+        _ => ty.to_string(),
     }
 }
 
@@ -352,12 +354,18 @@ inline long long cinder_parse_int(const std::string& value) {
     for function in &program.functions {
         if function.name == "main" { continue; }
         let params = function.parameters.iter().map(|p| format!("{} {}", cpp_type(&p.ty), p.name)).collect::<Vec<_>>().join(", ");
+        if !function.type_parameters.is_empty() {
+            writeln!(cpp, "template <{}>", function.type_parameters.iter().map(|ty| format!("typename {ty}")).collect::<Vec<_>>().join(", ")).unwrap();
+        }
         writeln!(cpp, "{} {}({params});", cpp_type(&function.return_type), function.name).unwrap();
     }
     cpp.push('\n');
     for function in &program.functions {
         if function.name == "main" { continue; }
         let params = function.parameters.iter().map(|p| format!("{} {}", cpp_type(&p.ty), p.name)).collect::<Vec<_>>().join(", ");
+        if !function.type_parameters.is_empty() {
+            writeln!(cpp, "template <{}>", function.type_parameters.iter().map(|ty| format!("typename {ty}")).collect::<Vec<_>>().join(", ")).unwrap();
+        }
         writeln!(cpp, "{} {}({params}) {{", cpp_type(&function.return_type), function.name).unwrap();
         emit_statements(&function.body, &mut cpp, 1);
         cpp.push_str("}\n\n");

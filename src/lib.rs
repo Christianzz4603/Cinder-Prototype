@@ -204,7 +204,7 @@ enum Expr {
 enum Stmt { Let { name: String, declared_type: Option<String>, mutable: bool, value: Expr }, Assign { name: String, value: Expr }, IndexAssign { name: String, index: Expr, value: Expr }, Push { name: String, value: Expr }, Print(Expr), Return(Expr), Break, Continue, If { condition: Expr, then_branch: Vec<Stmt>, else_branch: Option<Vec<Stmt>> }, While { condition: Expr, body: Vec<Stmt> }, ForRange { name: String, start: Expr, end: Expr, body: Vec<Stmt> }, ForEach { name: String, iterable: Expr, body: Vec<Stmt> } }
 
 #[derive(Debug)]
-struct Function { name: String, params: Vec<(String, String)>, return_type: String, body: Vec<Stmt> }
+struct Function { name: String, type_params: Vec<String>, params: Vec<(String, String)>, return_type: String, body: Vec<Stmt> }
 
 fn parse_interpolation(source: &str, line: usize) -> Result<Expr, String> {
     let chars: Vec<char> = source.chars().collect();
@@ -244,7 +244,7 @@ fn parse_interpolation(source: &str, line: usize) -> Result<Expr, String> {
             return Err(format!("line {line}: interpolation cannot be empty"));
         }
         let tokens = lex(&expression)?;
-        let mut parser = Parser { tokens, at: 0 };
+        let mut parser = Parser { tokens, at: 0, generic_types: Vec::new() };
         let value = parser.expression()?;
         if !matches!(&parser.current().kind, Kind::Eof) {
             return Err(format!("line {line}: invalid expression inside string interpolation"));
@@ -263,7 +263,7 @@ fn parse_interpolation(source: &str, line: usize) -> Result<Expr, String> {
     Ok(result)
 }
 
-struct Parser { tokens: Vec<Token>, at: usize }
+struct Parser { tokens: Vec<Token>, at: usize, generic_types: Vec<String> }
 
 impl Parser {
     fn current(&self) -> &Token { &self.tokens[self.at] }
@@ -505,13 +505,30 @@ impl Parser {
                 self.expect(Kind::Greater, "'>' after array element type")?;
                 Ok(format!("Array<{element}>"))
             }
-            _ => Err(format!("line {}: unsupported type '{ty}' (supported: i32, i64, u32, u64, f32, f64, bool, String, Array<T>)", self.current().line)),
+            _ if self.generic_types.iter().any(|generic| generic == &ty) => Ok(ty),
+            _ => Err(format!("line {}: unsupported type '{ty}' (supported: i32, i64, u32, u64, f32, f64, bool, String, Array<T>, or a declared generic type)", self.current().line)),
         }
     }
     fn function(&mut self) -> Result<Function, String> {
         self.expect_word("fn")?;
         let name = self.take_name("a function name")?;
-        self.expect(Kind::LParen, "'(' after function name")?;
+        let mut type_params = Vec::new();
+        if matches!(&self.current().kind, Kind::Less) {
+            self.advance();
+            loop {
+                let generic = self.take_name("a generic type parameter")?;
+                if type_params.contains(&generic) {
+                    return Err(format!("line {}: duplicate generic type parameter '{generic}'", self.current().line));
+                }
+                type_params.push(generic);
+                if matches!(&self.current().kind, Kind::Comma) { self.advance(); }
+                else { break; }
+            }
+            self.expect(Kind::Greater, "'>' after generic type parameters")?;
+        }
+        let previous_generics = self.generic_types.clone();
+        self.generic_types.extend(type_params.iter().cloned());
+        self.expect(Kind::LParen, "'(' after function name or generic parameters")?;
         let mut params = Vec::new();
         if !matches!(&self.current().kind, Kind::RParen) {
             loop {
@@ -539,7 +556,11 @@ impl Parser {
         if name == "main" && !params.is_empty() {
             return Err("line 1: main must not declare parameters".to_string());
         }
-        Ok(Function { name, params, return_type, body })
+        if name == "main" && !type_params.is_empty() {
+            return Err("line 1: main must not declare generic type parameters".to_string());
+        }
+        self.generic_types = previous_generics;
+        Ok(Function { name, type_params, params, return_type, body })
     }
     fn program(&mut self) -> Result<Vec<Function>, String> {
         let mut functions = Vec::new();
@@ -712,6 +733,7 @@ fn cpp_type(ty: &str) -> String {
 
 #[derive(Clone, Debug)]
 struct FunctionSignature {
+    type_params: Vec<String>,
     params: Vec<String>,
     return_type: String,
 }
@@ -733,6 +755,39 @@ fn compatible_type(actual: &str, expected: &str, expr: &Expr) -> bool {
 
 fn lookup_variable(scopes: &TypeScopes, name: &str) -> Option<(String, bool)> {
     scopes.iter().rev().find_map(|scope| scope.get(name).cloned())
+}
+
+fn bind_generic_type(
+    expected: &str,
+    actual: &str,
+    generic_params: &[String],
+    substitutions: &mut std::collections::HashMap<String, String>,
+    expr: &Expr,
+) -> bool {
+    if generic_params.iter().any(|generic| generic == expected) {
+        if let Some(previous) = substitutions.get(expected) {
+            return previous == actual;
+        }
+        substitutions.insert(expected.to_string(), actual.to_string());
+        return true;
+    }
+    if let (Some(expected_inner), Some(actual_inner)) = (
+        expected.strip_prefix("Array<").and_then(|ty| ty.strip_suffix('>')),
+        actual.strip_prefix("Array<").and_then(|ty| ty.strip_suffix('>')),
+    ) {
+        return bind_generic_type(expected_inner, actual_inner, generic_params, substitutions, expr);
+    }
+    compatible_type(actual, expected, expr)
+}
+
+fn substitute_generic_type(ty: &str, substitutions: &std::collections::HashMap<String, String>) -> String {
+    if let Some(actual) = substitutions.get(ty) {
+        return actual.clone();
+    }
+    if let Some(inner) = ty.strip_prefix("Array<").and_then(|ty| ty.strip_suffix('>')) {
+        return format!("Array<{}>", substitute_generic_type(inner, substitutions));
+    }
+    ty.to_string()
 }
 
 fn infer_expr_type(
@@ -869,20 +924,23 @@ fn infer_expr_type(
                         .filter(|signature| signature.params.len() == arg_types.len())
                         .filter_map(|signature| {
                             let mut score = 0usize;
+                            let mut substitutions = std::collections::HashMap::new();
                             for (index, (actual, expected)) in arg_types.iter().zip(&signature.params).enumerate() {
-                                if !compatible_type(actual, expected, &args[index]) { return None; }
+                                if !bind_generic_type(expected, actual, &signature.type_params, &mut substitutions, &args[index]) {
+                                    return None;
+                                }
                                 if actual != expected { score += 1; }
                             }
-                            Some((score, signature))
-                        }).collect();
+                            Some((score, signature, substitutions))
+                        }).collect::<Vec<_>>();
                     if viable.is_empty() {
                         return Err(format!("no overload of '{name}' matches argument types ({})", arg_types.join(", ")));
                     }
-                    viable.sort_by_key(|(score, _)| *score);
+                    viable.sort_by_key(|(score, _, _)| *score);
                     if viable.len() > 1 && viable[0].0 == viable[1].0 {
                         return Err(format!("call to '{name}' is ambiguous for argument types ({})", arg_types.join(", ")));
                     }
-                    Ok(viable[0].1.return_type.clone())
+                    Ok(substitute_generic_type(&viable[0].1.return_type, &viable[0].2))
                 }
             }
         }
@@ -1016,6 +1074,7 @@ fn type_check_program(functions: &[Function]) -> Result<(), String> {
     let mut signatures: std::collections::HashMap<String, Vec<FunctionSignature>> = std::collections::HashMap::new();
     for function in functions {
         signatures.entry(function.name.clone()).or_default().push(FunctionSignature {
+            type_params: function.type_params.clone(),
             params: function.params.iter().map(|(_, ty)| ty.clone()).collect(),
             return_type: function.return_type.clone(),
         });
@@ -1093,7 +1152,7 @@ fn validate_function_calls(statements: &[Stmt], signatures: &std::collections::H
 /// Parse and semantically check Cinder source, then lower it to the backend-independent IR.
 pub fn compile_to_ir(source: &str) -> Result<ir::IrProgram, String> {
     let tokens = lex(source)?;
-    let mut parser = Parser { tokens, at: 0 };
+    let mut parser = Parser { tokens, at: 0, generic_types: Vec::new() };
     let functions = parser.program()?;
     type_check_program(&functions)?;
     let mut signatures: std::collections::HashMap<String, Vec<usize>> = std::collections::HashMap::new();
@@ -1552,6 +1611,21 @@ fn main() {
         assert!(cpp.contains("convert(4)"));
         assert!(cpp.contains("convert(std::string(\"cinder\"))"));
         assert!(crate::compile_to_cpp("fn same(value: i64) -> i64 { return value }\nfn same(value: i64) -> i64 { return value }\nfn main() {}").unwrap_err().contains("duplicate function signature"));
+    }
+
+    #[test]
+    fn infers_generic_function_types_from_arguments() {
+        let cpp = crate::compile_to_cpp(r#"fn identity<T>(value: T) -> T { return value }
+fn first_item<T>(items: Array<T>) -> T { return items[0] }
+fn main() {
+    print(identity(42))
+    print(identity("cinder"))
+    print(first_item([3, 6, 9]))
+}"#).unwrap();
+        assert!(cpp.contains("template <typename T>"));
+        assert!(cpp.contains("T identity(T value)"));
+        assert!(cpp.contains("std::vector<T> items"));
+        assert!(crate::compile_to_cpp("fn main() { print(identity(1)) }").unwrap_err().contains("unknown function 'identity'"));
     }
 
 }
