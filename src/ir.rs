@@ -252,7 +252,7 @@ fn cpp_expr(expr: &IrExpression) -> String {
                 "input" => format!("cinder_input({})", values.join(", ")),
                 "to_string" => format!("cinder_to_string({})", values[0]),
                 "parse_int" => format!("cinder_parse_int({})", values[0]),
-                "contains" => format!("({}.find({}) != std::string::npos)", values[0], values[1]),
+                "contains" => format!("cinder_contains({}, {})", values[0], values[1]),
                 "starts_with" => format!("({}.starts_with({}))", values[0], values[1]),
                 "ends_with" => format!("({}.ends_with({}))", values[0], values[1]),
                 "is_even" => format!("(({}) % 2 == 0)", values[0]),
@@ -350,6 +350,13 @@ pub(crate) fn emit_cpp(program: &IrProgram) -> String {
     cpp.push_str(r#"
 inline long long cinder_len(const std::string& value) {
     return static_cast<long long>(value.size());
+}
+inline bool cinder_contains(const std::string& value, const std::string& needle) {
+    return value.find(needle) != std::string::npos;
+}
+template <typename T, typename U>
+inline bool cinder_contains(const std::vector<T>& value, const U& needle) {
+    return std::find(value.begin(), value.end(), needle) != value.end();
 }
 template <typename T>
 inline long long cinder_len(const std::vector<T>& value) {

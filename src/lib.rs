@@ -680,7 +680,7 @@ fn cpp_expr(expr: &Expr) -> String {
                 "input" => format!("cinder_input({})", values.join(", ")),
                 "to_string" => format!("cinder_to_string({})", values[0]),
                 "parse_int" => format!("cinder_parse_int({})", values[0]),
-                "contains" => format!("({}.find({}) != std::string::npos)", values[0], values[1]),
+                "contains" => format!("cinder_contains({}, {})", values[0], values[1]),
                 "starts_with" => format!("({}.starts_with({}))", values[0], values[1]),
                 "ends_with" => format!("({}.ends_with({}))", values[0], values[1]),
                 "is_even" => format!("(({}) % 2 == 0)", values[0]),
@@ -944,7 +944,15 @@ fn infer_expr_type(
                     if !mutable_target { return bad("expects a mutable array variable declared with var".to_string()); }
                     Ok(element_ty.to_string())
                 }
-                "contains" | "starts_with" | "ends_with" => {
+                "contains" => {
+                    if arg_types[0] == "String" && arg_types[1] == "String" { return Ok("bool".into()); }
+                    if let Some(element_ty) = arg_types[0].strip_prefix("Array<").and_then(|ty| ty.strip_suffix('>')) {
+                        if compatible_type(&arg_types[1], element_ty, &args[1]) { return Ok("bool".into()); }
+                        return bad(format!("expects an element of type {element_ty}, got {}", arg_types[1]));
+                    }
+                    bad("expects (String, String) or (Array<T>, T)".to_string())
+                }
+                "starts_with" | "ends_with" => {
                     if arg_types.iter().any(|ty| ty != "String") { return bad("expects two String arguments".to_string()); }
                     Ok("bool".into())
                 }
@@ -1602,7 +1610,7 @@ mod tests {
             }"#,
         )
         .unwrap();
-        assert!(cpp.contains("find(std::string(\"in\"))"));
+        assert!(cpp.contains("cinder_contains(name, std::string(\"in\"))"));
         assert!(cpp.contains("std::string(\"Hello, \") + name"));
     }
 
@@ -1645,10 +1653,10 @@ multiline \n text""")
 
     #[test]
     fn reads_first_and_last_array_elements() {
-        let cpp = crate::compile_to_cpp("fn main() { let values = [3, 6, 9]\n print(first(values))\n print(last(values)) }").unwrap();
+        let cpp = crate::compile_to_cpp("fn main() { let values = [3, 6, 9]\n print(first(values))\n print(last(values))\n print(contains(values, 6)) }").unwrap();
         assert!(cpp.contains("cinder_first(values)"));
-        assert!(cpp.contains("cinder_last(values)"));
-        assert!(crate::compile_to_cpp("fn main() { print(first(12)) }").unwrap_err().contains("expects an Array"));
+        assert!(cpp.contains("cinder_last(values)"));\n        assert!(cpp.contains("cinder_contains(values, 6)"));
+        assert!(crate::compile_to_cpp("fn main() { print(first(12)) }").unwrap_err().contains("expects an Array"));\n        assert!(crate::compile_to_cpp("fn main() { print(contains([1, 2], \"x\")) }").is_err());
     }
 }
 
