@@ -425,8 +425,13 @@ fn cpp_expr(expr: &IrExpression) -> String {
             }
         }
         IrExpression::Unary { operator, value } => format!("({operator}{})", cpp_expr(value)),
-        IrExpression::Binary { left, operator, right } =>
-            format!("({} {operator} {})", cpp_expr(left), cpp_expr(right)),
+        IrExpression::Binary { left, operator, right } => {
+            if operator == "+" {
+                format!("cinder_add({}, {})", cpp_expr(left), cpp_expr(right))
+            } else {
+                format!("({} {operator} {})", cpp_expr(left), cpp_expr(right))
+            }
+        },
     }
 }
 
@@ -521,6 +526,16 @@ inline bool cinder_contains(const std::string& value, const std::string& needle)
 template <typename T, typename U>
 inline bool cinder_contains(const std::vector<T>& value, const U& needle) {
     return std::find(value.begin(), value.end(), needle) != value.end();
+}
+template <typename T>
+inline std::vector<T> cinder_add(const std::vector<T>& left, const std::vector<T>& right) {
+    std::vector<T> result = left;
+    result.insert(result.end(), right.begin(), right.end());
+    return result;
+}
+template <typename T, typename U>
+auto cinder_add(const T& left, const U& right) -> decltype(left + right) {
+    return left + right;
 }
 template <typename T>
 inline long long cinder_len(const std::vector<T>& value) {

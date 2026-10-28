@@ -45,6 +45,7 @@ jobs:
           test "$(/tmp/cinder-match | paste -sd, -)" = "two,enabled"
           test "$(/tmp/cinder-generics | paste -sd, -)" = "42,Cinder,3"
           test "$(/tmp/cinder-closures | paste -sd, -)" = "8,8"
+          test "$(/tmp/cinder-array_concat | paste -sd, -)" = "4,1,4"
           test "$(/tmp/cinder-loops | tail -n 1)" = "55"
           test "$(/tmp/cinder-functions | tail -n 2 | head -n 1)" = "144"
           test "$(/tmp/cinder-functions | tail -n 1)" = "120"

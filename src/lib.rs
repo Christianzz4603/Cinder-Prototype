@@ -720,6 +720,9 @@ fn cpp_expr(expr: &Expr) -> String {
             format!("({symbol}{})", cpp_expr(value))
         }
         Expr::Binary { left, op, right } => {
+            if matches!(op, BinaryOp::Add) {
+                return format!("cinder_add({}, {})", cpp_expr(left), cpp_expr(right));
+            }
             let symbol = match op {
                 BinaryOp::Add => "+", BinaryOp::Subtract => "-", BinaryOp::Multiply => "*",
                 BinaryOp::Divide => "/", BinaryOp::Remainder => "%", BinaryOp::Less => "<",
@@ -944,6 +947,7 @@ fn infer_expr_type(
             let right_ty = infer_expr_type(right, scopes, signatures)?;
             match op {
                 BinaryOp::Add if left_ty == "String" && right_ty == "String" => Ok("String".into()),
+                BinaryOp::Add if left_ty == right_ty && left_ty.starts_with("Array<") => Ok(left_ty),
                 BinaryOp::Add | BinaryOp::Subtract | BinaryOp::Multiply | BinaryOp::Divide | BinaryOp::Remainder
                     if is_numeric(&left_ty) && is_numeric(&right_ty) => {
                         if left_ty == "f64" || right_ty == "f64" { Ok("f64".into()) }
@@ -1761,6 +1765,19 @@ multiline \n text""")
 
 
 
+
+    #[test]
+    fn concatenates_arrays_with_plus() {
+        let cpp = crate::compile_to_cpp(r#"fn main() {
+    let left = [1, 2]
+    let right = [3, 4]
+    let combined = left + right
+    print(len(combined))
+}"#).unwrap();
+        assert!(cpp.contains("cinder_add(left, right)"));
+        assert!(crate::compile_to_cpp("fn main() { let values = [1, 2]\n print(values + [\\"x\\"]) }").is_err());
+    }
+
     #[test]
     fn supports_compile_time_const_declarations() {
         let cpp = crate::compile_to_cpp(r#"fn main() {
@@ -1798,7 +1815,7 @@ multiline \n text""")
     print(add(3))
     print(twice_value(4))
 }"#).unwrap();
-        assert!(cpp.contains("[=](std::int64_t x) { return (x + offset); }"));
+        assert!(cpp.contains("[=](std::int64_t x) { return cinder_add(x, offset); }"));
         assert!(cpp.contains("add(3)"));
         assert!(cpp.contains("twice_value(4)"));
         assert!(crate::compile_to_cpp("fn main() { let value = 3\n print(value(1)) }").unwrap_err().contains("not callable"));

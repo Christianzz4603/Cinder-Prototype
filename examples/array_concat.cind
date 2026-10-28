@@ -1,0 +1,8 @@
+fn main() {
+    let left = [1, 2]
+    let right = [3, 4]
+    let combined = left + right
+    print(len(combined))
+    print(first(combined))
+    print(last(combined))
+}

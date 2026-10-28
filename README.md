@@ -13,7 +13,7 @@ The compiler is written in Rust. It parses Cinder, runs an initial semantic/type
 - Primitive types: `i32`, `i64`, `u32`, `u64`, `f32`, `f64`, `bool`, `String`, and `str` as an alias for String
 - Decimal floating-point literals and hexadecimal, binary, and octal integers
 - Generic array types such as `Array<i64>`, including nested arrays
-- Array literals (including explicitly typed empty arrays), bounds-checked indexing, indexed mutation for `var` arrays, and dynamic push/pop
+- Array literals (including explicitly typed empty arrays), bounds-checked indexing, indexed mutation for `var` arrays, concatenation with `+`, and dynamic push/pop
 - if/else-if/else, exhaustive `match` statements for literal patterns, while loops, range loops, and array for-each loops
 - break and continue with loop-context validation
 - Arithmetic, comparisons, equality, logical, bitwise, shift, and unary operators
