@@ -1409,7 +1409,7 @@ mod tests {
         let cpp = compile_to_cpp(r#"fn main() {
             print("""first line
 second line""")
-            print(r"C:\\users\\cinder")
+            print(r"C:\users\cinder")
             print(r"""raw
 multiline \\n text""")
         }"#).unwrap();
