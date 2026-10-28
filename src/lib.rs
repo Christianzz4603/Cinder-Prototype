@@ -8,7 +8,7 @@ enum Kind {
     String(String),
     InterpolatedString(String),
     Number(String),
-    LParen, RParen, LBrace, RBrace, LBracket, RBracket, Colon, Comma, Equal, Arrow,
+    LParen, RParen, LBrace, RBrace, LBracket, RBracket, Colon, Comma, Equal, FatArrow, Arrow,
     Plus, Minus, Star, Slash, Percent, Bang, Tilde, Caret, Amp, Pipe, ShiftLeft, ShiftRight,
     Less, LessEqual, Greater, GreaterEqual, EqualEqual, BangEqual, DotDot,
     AndAnd, OrOr, Newline, Eof,
@@ -48,6 +48,7 @@ fn lex(source: &str) -> Result<Vec<Token>, String> {
             '^' => { i += 1; Kind::Caret }
             '!' if chars.get(i + 1) == Some(&'=') => { i += 2; Kind::BangEqual }
             '!' => { i += 1; Kind::Bang }
+            '=' if chars.get(i + 1) == Some(&'>') => { i += 2; Kind::FatArrow }
             '=' if chars.get(i + 1) == Some(&'=') => { i += 2; Kind::EqualEqual }
             '=' => { i += 1; Kind::Equal }
             '<' if chars.get(i + 1) == Some(&'<') => { i += 2; Kind::ShiftLeft }
@@ -200,8 +201,14 @@ enum Expr {
     Binary { left: Box<Expr>, op: BinaryOp, right: Box<Expr> },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Pattern { Number(String), Text(String), Bool(bool), Wildcard }
+
 #[derive(Debug)]
-enum Stmt { Let { name: String, declared_type: Option<String>, mutable: bool, value: Expr }, Assign { name: String, value: Expr }, IndexAssign { name: String, index: Expr, value: Expr }, Push { name: String, value: Expr }, Print(Expr), Return(Expr), Break, Continue, If { condition: Expr, then_branch: Vec<Stmt>, else_branch: Option<Vec<Stmt>> }, While { condition: Expr, body: Vec<Stmt> }, ForRange { name: String, start: Expr, end: Expr, body: Vec<Stmt> }, ForEach { name: String, iterable: Expr, body: Vec<Stmt> } }
+struct MatchArm { pattern: Pattern, body: Vec<Stmt> }
+
+#[derive(Debug)]
+enum Stmt { Let { name: String, declared_type: Option<String>, mutable: bool, value: Expr }, Assign { name: String, value: Expr }, IndexAssign { name: String, index: Expr, value: Expr }, Push { name: String, value: Expr }, Print(Expr), Return(Expr), Break, Continue, If { condition: Expr, then_branch: Vec<Stmt>, else_branch: Option<Vec<Stmt>> }, While { condition: Expr, body: Vec<Stmt> }, ForRange { name: String, start: Expr, end: Expr, body: Vec<Stmt> }, ForEach { name: String, iterable: Expr, body: Vec<Stmt> }, Match { value: Expr, arms: Vec<MatchArm> } }
 
 #[derive(Debug)]
 struct Function { name: String, type_params: Vec<String>, params: Vec<(String, String)>, return_type: String, body: Vec<Stmt> }
@@ -457,6 +464,36 @@ impl Parser {
                 self.expect(Kind::Equal, "'=' in assignment")?;
                 Ok(Stmt::Assign { name, value: self.expression()? })
             }
+            Kind::Ident(word) if word == "match" => {
+                self.advance();
+                let value = self.expression()?;
+                self.expect(Kind::LBrace, "'{' after match value")?;
+                let mut arms = Vec::new();
+                self.skip_newlines();
+                while !matches!(&self.current().kind, Kind::RBrace) {
+                    let pattern = match self.advance().kind {
+                        Kind::Number(value) => Pattern::Number(value),
+                        Kind::String(value) => Pattern::Text(value),
+                        Kind::Ident(value) if value == "true" => Pattern::Bool(true),
+                        Kind::Ident(value) if value == "false" => Pattern::Bool(false),
+                        Kind::Ident(value) if value == "_" => Pattern::Wildcard,
+                        other => return Err(format!("line {}: unsupported match pattern {:?}", self.current().line, other)),
+                    };
+                    if arms.iter().any(|arm: &MatchArm| arm.pattern == pattern) {
+                        return Err(format!("line {}: duplicate match pattern", self.current().line));
+                    }
+                    if arms.iter().any(|arm| matches!(arm.pattern, Pattern::Wildcard)) {
+                        return Err(format!("line {}: wildcard match arm must be last", self.current().line));
+                    }
+                    self.expect(Kind::FatArrow, "'=>' after match pattern")?;
+                    let body = self.block()?;
+                    arms.push(MatchArm { pattern, body });
+                    self.skip_newlines();
+                }
+                self.expect(Kind::RBrace, "'}' after match arms")?;
+                if arms.is_empty() { return Err("match must contain at least one arm".to_string()); }
+                Ok(Stmt::Match { value, arms })
+            }
             Kind::Ident(word) if word == "for" => {
                 self.advance();
                 let name = self.take_name("a loop variable")?;
@@ -707,6 +744,31 @@ fn emit_statements(statements: &[Stmt], cpp: &mut String, indent: usize) {
             Stmt::ForEach { name, iterable, body } => {
                 writeln!(cpp, "{pad}for (const auto& {name} : {}) {{", cpp_expr(iterable)).unwrap();
                 emit_statements(body, cpp, indent + 1);
+                writeln!(cpp, "{pad}}}").unwrap();
+            }
+            Stmt::Match { value, arms } => {
+                writeln!(cpp, "{pad}{{ const auto __cinder_match_value = {}; ", cpp_expr(value)).unwrap();
+                let mut started = false;
+                for arm in arms {
+                    let pattern = match &arm.pattern {
+                        Pattern::Number(number) => cpp_number(number),
+                        Pattern::Text(text) => cpp_string(text),
+                        Pattern::Bool(value) => value.to_string(),
+                        Pattern::Wildcard => String::new(),
+                    };
+                    if matches!(arm.pattern, Pattern::Wildcard) {
+                        if started { writeln!(cpp, "{pad}}} else {{").unwrap(); }
+                        emit_statements(&arm.body, cpp, if started { indent + 2 } else { indent + 1 });
+                    } else if !started {
+                        writeln!(cpp, "{pad}    if (__cinder_match_value == {pattern}) {{").unwrap();
+                        emit_statements(&arm.body, cpp, indent + 2);
+                        started = true;
+                    } else {
+                        writeln!(cpp, "{pad}    }} else if (__cinder_match_value == {pattern}) {{").unwrap();
+                        emit_statements(&arm.body, cpp, indent + 2);
+                    }
+                }
+                if started { writeln!(cpp, "{pad}    }}").unwrap(); }
                 writeln!(cpp, "{pad}}}").unwrap();
             }
         }
@@ -1020,6 +1082,33 @@ fn check_statements(
                     result?;
                 }
             }
+            Stmt::Match { value, arms } => {
+                let value_ty = infer_expr_type(value, scopes, signatures)?;
+                let mut has_true = false;
+                let mut has_false = false;
+                let mut has_wildcard = false;
+                for arm in arms {
+                    match &arm.pattern {
+                        Pattern::Number(_) if !is_numeric(&value_ty) =>
+                            return Err(format!("numeric match pattern requires a numeric value, got {value_ty}")),
+                        Pattern::Text(_) if value_ty != "String" =>
+                            return Err(format!("string match pattern requires String, got {value_ty}")),
+                        Pattern::Bool(_) if value_ty != "bool" =>
+                            return Err(format!("boolean match pattern requires bool, got {value_ty}")),
+                        Pattern::Bool(true) => has_true = true,
+                        Pattern::Bool(false) => has_false = true,
+                        Pattern::Wildcard => has_wildcard = true,
+                        _ => {}
+                    }
+                    scopes.push(std::collections::HashMap::new());
+                    let result = check_statements(&arm.body, scopes, signatures, expected_return, loop_depth);
+                    scopes.pop();
+                    result?;
+                }
+                if !has_wildcard && !(value_ty == "bool" && has_true && has_false) {
+                    return Err("non-exhaustive match; add a '_' wildcard arm".to_string());
+                }
+            }
             Stmt::While { condition, body } => {
                 let condition_ty = infer_expr_type(condition, scopes, signatures)?;
                 if condition_ty != "bool" { return Err(format!("while condition must be bool, got {condition_ty}")); }
@@ -1055,17 +1144,25 @@ fn check_statements(
     Ok(())
 }
 
+fn match_is_exhaustive(arms: &[MatchArm]) -> bool {
+    arms.iter().any(|arm| matches!(arm.pattern, Pattern::Wildcard))
+        || (arms.iter().any(|arm| matches!(arm.pattern, Pattern::Bool(true)))
+            && arms.iter().any(|arm| matches!(arm.pattern, Pattern::Bool(false))))
+}
+
 fn block_definitely_returns(statements: &[Stmt]) -> bool {
     statements.iter().any(|stmt| match stmt {
         Stmt::Return(_) => true,
         Stmt::If { then_branch, else_branch: Some(else_branch), .. } => {
             block_definitely_returns(then_branch) && block_definitely_returns(else_branch)
         }
+        Stmt::Match { arms, .. } => match_is_exhaustive(arms) && arms.iter().all(|arm| block_definitely_returns(&arm.body)),
         _ => false,
     }) || statements.last().is_some_and(|stmt| match stmt {
         Stmt::If { then_branch, else_branch: Some(else_branch), .. } => {
             block_definitely_returns(then_branch) && block_definitely_returns(else_branch)
         }
+        Stmt::Match { arms, .. } => match_is_exhaustive(arms) && arms.iter().all(|arm| block_definitely_returns(&arm.body)),
         _ => false,
     })
 }
@@ -1143,6 +1240,10 @@ fn validate_function_calls(statements: &[Stmt], signatures: &std::collections::H
             Stmt::ForEach { iterable, body, .. } => {
                 validate_expr_calls(iterable, signatures)?;
                 validate_function_calls(body, signatures, loop_depth + 1)?;
+            }
+            Stmt::Match { value, arms } => {
+                validate_expr_calls(value, signatures)?;
+                for arm in arms { validate_function_calls(&arm.body, signatures, loop_depth)?; }
             }
         }
     }
@@ -1626,6 +1727,27 @@ fn main() {
         assert!(cpp.contains("T identity(T value)"));
         assert!(cpp.contains("std::vector<T> items"));
         assert!(crate::compile_to_cpp("fn main() { print(identity(1)) }").unwrap_err().contains("unknown function 'identity'"));
+    }
+
+    #[test]
+    fn matches_numeric_and_string_patterns_exhaustively() {
+        let cpp = crate::compile_to_cpp(r#"fn main() {
+    let value = 2
+    match value {
+        1 => { print("one") }
+        2 => { print("two") }
+        _ => { print("other") }
+    }
+    match "cinder" {
+        "cinder" => { print(true) }
+        _ => { print(false) }
+    }
+}"#).unwrap();
+        assert!(cpp.contains("if (__cinder_match_value == 1)"));
+        assert!(cpp.contains("else if (__cinder_match_value == 2)"));
+        assert!(cpp.contains("std::string(\"two\")"));
+        assert!(crate::compile_to_cpp("fn main() { match 2 { 1 => { print(1) } } }").unwrap_err().contains("non-exhaustive match"));
+        assert!(crate::compile_to_cpp("fn main() { match true { true => { print(1) } } }").unwrap_err().contains("non-exhaustive match"));
     }
 
 }

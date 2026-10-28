@@ -26,7 +26,8 @@ This roadmap describes intended work, not completed features.
 - [x] Initial static type checker for variables, assignments, calls, operators, and boolean conditions
 - [x] Basic return-path analysis for non-main functions
 - [ ] Structs, enums, and field access
-- [ ] Pattern matching
+- [x] Initial exhaustive literal-pattern `match` statements
+- [ ] Enum/destructuring patterns and match expressions
 - [x] Basic generic functions with inferred type parameters
 - [ ] Generic constraints, bounds, and specialization
 - [x] Function overloading by parameter types

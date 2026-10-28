@@ -14,7 +14,7 @@ The compiler is written in Rust. It parses Cinder, runs an initial semantic/type
 - Decimal floating-point literals and hexadecimal, binary, and octal integers
 - Generic array types such as `Array<i64>`, including nested arrays
 - Array literals (including explicitly typed empty arrays), bounds-checked indexing, indexed mutation for `var` arrays, and dynamic push/pop
-- if/else-if/else, while loops, range loops, and array for-each loops
+- if/else-if/else, exhaustive `match` statements for literal patterns, while loops, range loops, and array for-each loops
 - break and continue with loop-context validation
 - Arithmetic, comparisons, equality, logical, bitwise, shift, and unary operators
 - String concatenation, common string escapes, triple-quoted multiline strings (`\"\"\"...\"\"\"`), raw strings (`r\"...\"` and `r\"\"\"...\"\"\"`), interpolated strings (`$\"Hello, {name}\"`), escaped interpolation braces (`{{` and `}}`), and `//` comments

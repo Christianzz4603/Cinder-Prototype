@@ -6,7 +6,7 @@
 
 use std::fmt::Write as _;
 
-use super::{BinaryOp, Expr, Function, Kind, Stmt};
+use super::{BinaryOp, Expr, Function, Kind, Pattern, Stmt};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IrProgram {
@@ -31,6 +31,7 @@ pub struct IrParameter {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum IrStatement {
     Let { name: String, ty: Option<String>, mutable: bool, value: IrExpression },
+    Match { value: IrExpression, arms: Vec<IrMatchArm> },
     Assign { name: String, value: IrExpression },
     IndexAssign { name: String, index: IrExpression, value: IrExpression },
     Push { name: String, value: IrExpression },
@@ -43,6 +44,12 @@ pub enum IrStatement {
     ForRange { name: String, start: IrExpression, end: IrExpression, body: Vec<IrStatement> },
     ForEach { name: String, iterable: IrExpression, body: Vec<IrStatement> },
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum IrPattern { Number(String), String(String), Bool(bool), Wildcard }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IrMatchArm { pub pattern: IrPattern, pub body: Vec<IrStatement> }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum IrExpression {
@@ -138,6 +145,18 @@ fn lower_statements(statements: &[Stmt]) -> Vec<IrStatement> {
         },
         Stmt::ForEach { name, iterable, body } => IrStatement::ForEach {
             name: name.clone(), iterable: lower_expr(iterable), body: lower_statements(body),
+        },
+        Stmt::Match { value, arms } => IrStatement::Match {
+            value: lower_expr(value),
+            arms: arms.iter().map(|arm| IrMatchArm {
+                pattern: match &arm.pattern {
+                    Pattern::Number(value) => IrPattern::Number(value.clone()),
+                    Pattern::Text(value) => IrPattern::String(value.clone()),
+                    Pattern::Bool(value) => IrPattern::Bool(*value),
+                    Pattern::Wildcard => IrPattern::Wildcard,
+                },
+                body: lower_statements(&arm.body),
+            }).collect(),
         },
     }).collect()
 }
@@ -292,6 +311,33 @@ fn emit_statements(statements: &[IrStatement], cpp: &mut String, indent: usize) 
             IrStatement::ForEach { name, iterable, body } => {
                 writeln!(cpp, "{pad}for (const auto& {name} : {}) {{", cpp_expr(iterable)).unwrap();
                 emit_statements(body, cpp, indent + 1);
+                writeln!(cpp, "{pad}}}").unwrap();
+            }
+            IrStatement::Match { value, arms } => {
+                writeln!(cpp, "{pad}{{").unwrap();
+                let inner_pad = format!("{pad}    ");
+                writeln!(cpp, "{inner_pad}const auto __cinder_match_value = {};", cpp_expr(value)).unwrap();
+                let mut started = false;
+                for arm in arms {
+                    let pattern = match &arm.pattern {
+                        IrPattern::Number(number) => cpp_number(number),
+                        IrPattern::String(value) => cpp_string(value),
+                        IrPattern::Bool(value) => value.to_string(),
+                        IrPattern::Wildcard => String::new(),
+                    };
+                    if matches!(arm.pattern, IrPattern::Wildcard) {
+                        if started { writeln!(cpp, "{inner_pad}}} else {{").unwrap(); }
+                        emit_statements(&arm.body, cpp, if started { indent + 2 } else { indent + 1 });
+                    } else if !started {
+                        writeln!(cpp, "{inner_pad}if (__cinder_match_value == {pattern}) {{").unwrap();
+                        emit_statements(&arm.body, cpp, indent + 2);
+                        started = true;
+                    } else {
+                        writeln!(cpp, "{inner_pad}}} else if (__cinder_match_value == {pattern}) {{").unwrap();
+                        emit_statements(&arm.body, cpp, indent + 2);
+                    }
+                }
+                if started { writeln!(cpp, "{inner_pad}}}").unwrap(); }
                 writeln!(cpp, "{pad}}}").unwrap();
             }
         }
