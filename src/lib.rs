@@ -520,15 +520,15 @@ fn infer_expr_type(
         Expr::Call { name, args } => {
             let mut arg_types = Vec::with_capacity(args.len());
             for arg in args { arg_types.push(infer_expr_type(arg, scopes, signatures)?); }
-            let bad = |expected: &str| Err(format!("function '{name}' {expected}"));
+            let bad = |expected: String| Err(format!("function '{name}' {expected}"));
             match name.as_str() {
                 "input" => {
-                    if arg_types.first().is_some_and(|ty| ty != "String") { return bad("expects an optional String prompt"); }
+                    if arg_types.first().is_some_and(|ty| ty != "String") { return bad("expects an optional String prompt".to_string()); }
                     Ok("String".into())
                 }
                 "len" => { if arg_types[0] != "String" { return bad(format!("expects String, got {}", arg_types[0])); } Ok("i64".into()) }
                 "contains" | "starts_with" | "ends_with" => {
-                    if arg_types.iter().any(|ty| ty != "String") { return bad("expects two String arguments"); }
+                    if arg_types.iter().any(|ty| ty != "String") { return bad("expects two String arguments".to_string()); }
                     Ok("bool".into())
                 }
                 "parse_int" => { if arg_types[0] != "String" { return bad(format!("expects String, got {}", arg_types[0])); } Ok("i64".into()) }
@@ -546,12 +546,12 @@ fn infer_expr_type(
                     Ok("f64".into())
                 }
                 "pow" => {
-                    if arg_types.iter().any(|ty| !is_numeric(ty)) { return bad("expects two numeric arguments"); }
+                    if arg_types.iter().any(|ty| !is_numeric(ty)) { return bad("expects two numeric arguments".to_string()); }
                     Ok("f64".into())
                 }
                 "min" | "max" | "clamp" => {
-                    if arg_types.iter().any(|ty| !is_numeric(ty)) { return bad("expects numeric arguments"); }
-                    if arg_types.iter().any(|ty| ty != &arg_types[0]) { return bad("requires arguments with matching numeric types"); }
+                    if arg_types.iter().any(|ty| !is_numeric(ty)) { return bad("expects numeric arguments".to_string()); }
+                    if arg_types.iter().any(|ty| ty != &arg_types[0]) { return bad("requires arguments with matching numeric types".to_string()); }
                     Ok(arg_types[0].clone())
                 }
                 _ => {
