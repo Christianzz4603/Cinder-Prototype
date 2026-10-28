@@ -60,13 +60,40 @@ fn lex(source: &str) -> Result<Vec<Token>, String> {
             '|' if chars.get(i + 1) == Some(&'|') => { i += 2; Kind::OrOr }
             '|' => { i += 1; Kind::Pipe }
             '/' => { i += 1; Kind::Slash }
-            '"' => {
+            'r' if chars.get(i + 1) == Some(&'"') => {
+                // Raw strings use r"..." or r"""...""". Backslashes are always literal.
                 i += 1;
+                let triple = chars.get(i..i + 3).is_some_and(|slice| slice == ['"', '"', '"']);
+                i += if triple { 3 } else { 1 };
                 let mut value = String::new();
                 let mut closed = false;
                 while i < chars.len() {
+                    if triple && chars.get(i..i + 3).is_some_and(|slice| slice == ['"', '"', '"']) {
+                        i += 3; closed = true; break;
+                    }
+                    if !triple && chars[i] == '"' {
+                        i += 1; closed = true; break;
+                    }
+                    if chars[i] == '\n' { line += 1; }
+                    value.push(chars[i]);
+                    i += 1;
+                }
+                if !closed { return Err(format!("line {start_line}: unterminated raw string literal")); }
+                Kind::String(value)
+            }
+            '"' => {
+                let triple = chars.get(i..i + 3).is_some_and(|slice| slice == ['"', '"', '"']);
+                i += if triple { 3 } else { 1 };
+                let mut value = String::new();
+                let mut closed = false;
+                while i < chars.len() {
+                    if triple && chars.get(i..i + 3).is_some_and(|slice| slice == ['"', '"', '"']) {
+                        i += 3; closed = true; break;
+                    }
+                    if !triple && chars[i] == '"' {
+                        i += 1; closed = true; break;
+                    }
                     match chars[i] {
-                        '"' => { i += 1; closed = true; break; }
                         '\\' => {
                             i += 1;
                             let escaped = *chars.get(i).ok_or_else(|| format!("line {line}: unfinished escape"))?;
@@ -76,7 +103,8 @@ fn lex(source: &str) -> Result<Vec<Token>, String> {
                             });
                             i += 1;
                         }
-                        '\n' => return Err(format!("line {start_line}: newline inside string literal")),
+                        '\n' if !triple => return Err(format!("line {start_line}: newline inside string literal; use triple quotes for multiline strings")),
+                        '\n' => { value.push('\n'); i += 1; line += 1; }
                         ch => { value.push(ch); i += 1; }
                     }
                 }
@@ -1284,6 +1312,21 @@ mod tests {
         .unwrap();
         assert!(cpp.contains("find(std::string(\"in\"))"));
         assert!(cpp.contains("std::string(\"Hello, \") + name"));
+    }
+
+    #[test]
+    fn supports_multiline_and_raw_string_literals() {
+        let cpp = compile_to_cpp(r#"fn main() {
+            print("""first line
+second line""")
+            print(r"C:\\users\\cinder")
+            print(r"""raw
+multiline \\n text""")
+        }"#).unwrap();
+        assert!(cpp.contains("first line\\nsecond line"));
+        assert!(cpp.contains("C:\\\\users\\\\cinder"));
+        assert!(cpp.contains("raw\\nmultiline \\\\n text"));
+        assert!(compile_to_cpp("fn main() { print(\"not multiline\nstring\") }").is_err());
     }
 
     #[test]
