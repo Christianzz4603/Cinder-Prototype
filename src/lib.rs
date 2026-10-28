@@ -1398,7 +1398,7 @@ mod tests {
             print(total)
         }"#).unwrap();
         assert!(cpp.contains("while ((i <= 5))"));
-        assert!(cpp.contains("total = (total + i);"));
+        assert!(cpp.contains("total = cinder_add(total, i);"));
         assert!(cpp.contains("i = (i + 1);"));
     }
 
@@ -1548,7 +1548,7 @@ mod tests {
             print(total)
         }"#).unwrap();
         assert!(cpp.contains("for (std::int64_t i = 0; i < 5; ++i)"));
-        assert!(cpp.contains("total = (total + i);"));
+        assert!(cpp.contains("total = cinder_add(total, i);"));
     }
 
     #[test]
@@ -1623,7 +1623,7 @@ mod tests {
             return a + b
         }"#).unwrap();
         assert!(cpp.contains("std::int64_t add(std::int64_t a, std::int64_t b);"));
-        assert!(cpp.contains("return (a + b);"));
+        assert!(cpp.contains("return cinder_add(a, b);"));
         assert!(cpp.contains("std::cout << add(20, 22)"));
     }
 
@@ -1740,7 +1740,7 @@ multiline \n text""")
             print($"Use {{name}} for a placeholder")
         }"#).unwrap();
         assert!(cpp.contains("cinder_to_string(name)"));
-        assert!(cpp.contains("cinder_to_string((version + 1))"));
+        assert!(cpp.contains("cinder_to_string(cinder_add(version, 1))"));
         assert!(cpp.contains("std::string(\"Use {name} for a placeholder\")"));
         assert!(compile_to_cpp(r#"fn main() { print($"broken {name") }"#).is_err());
     }
