@@ -51,7 +51,9 @@ jobs:
             git commit -m "test: generate native stress benchmark sources"
             git push origin HEAD:main
           fi
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
       - name: Install Android NDK
         run: sdkmanager "ndk;27.2.12479018"
       - name: Generate 96 MiB payload for large-file testing
