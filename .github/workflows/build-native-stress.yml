@@ -79,9 +79,9 @@ jobs:
             xargs -0 -n1 -P2 bash -c '
               set -e
               src="$1"
-              base=$(basename "$src" | sed "s/\\.[^.]*$//")
+              base=$(basename "$src" | sed "s/[.][^.]*$//")
               obj="build/obj/$base.o"
-              "$CXX" -std=c++17 -O2 -fno-inline -fPIC -fvisibility=hidden -fno-exceptions -fno-rtti -c "$src" -o "$obj"
+              "$CXX" -O2 -fno-inline -fPIC -fvisibility=hidden -fno-exceptions -fno-rtti -c "$src" -o "$obj"
             ' _
           "$CXX" -shared -Wl,--no-gc-sections -Wl,--build-id=none build/obj/*.o -o dist/libnative_stress.so
           "$STRIP" --strip-unneeded dist/libnative_stress.so
